@@ -11,6 +11,8 @@ members = [
     "crates/prime-osc",
     "crates/prime-spatial",
     "crates/prime-voronoi",
+    "crates/prime-diffusion",
+    "crates/prime-dynamics",
     # STAGE — game domain systems
     "crates/stage-nav",
     "crates/stage-combat",
