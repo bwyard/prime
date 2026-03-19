@@ -1,0 +1,12 @@
+[package]
+name        = "prime-spatial"
+description = "Spatial queries — ray tests, AABB, frustum culling"
+version.workspace    = true
+edition.workspace    = true
+license.workspace    = true
+repository.workspace = true
+keywords    = ["spatial", "collision", "raycast", "aabb", "frustum"]
+categories  = ["mathematics", "game-engines"]
+
+[dependencies]
+glam = { workspace = true }

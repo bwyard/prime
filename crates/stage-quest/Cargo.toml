@@ -1,0 +1,11 @@
+[package]
+name        = "stage-quest"
+description = "Quest graphs — dependency resolution, pacing score"
+version.workspace    = true
+edition.workspace    = true
+license.workspace    = true
+repository.workspace = true
+keywords    = ["quest", "game-dev", "narrative", "graph", "rpg"]
+categories  = ["mathematics", "game-engines"]
+
+[dependencies]

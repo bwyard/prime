@@ -1,0 +1,12 @@
+[package]
+name        = "prime-voronoi"
+description = "Voronoi / Delaunay — cellular noise, Lloyd relaxation"
+version.workspace    = true
+edition.workspace    = true
+license.workspace    = true
+repository.workspace = true
+keywords    = ["voronoi", "delaunay", "procedural", "spatial", "noise"]
+categories  = ["mathematics", "game-engines"]
+
+[dependencies]
+glam = { workspace = true }

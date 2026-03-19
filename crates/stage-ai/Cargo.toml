@@ -1,0 +1,12 @@
+[package]
+name        = "stage-ai"
+description = "AI systems — utility AI, FSM, influence maps"
+version.workspace    = true
+edition.workspace    = true
+license.workspace    = true
+repository.workspace = true
+keywords    = ["ai", "game-dev", "utility-ai", "fsm", "pathfinding"]
+categories  = ["mathematics", "game-engines"]
+
+[dependencies]
+glam = { workspace = true }

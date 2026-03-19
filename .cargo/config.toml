@@ -1,0 +1,11 @@
+# Rust on Windows requires either:
+#   (a) Visual C++ Build Tools — https://visualstudio.microsoft.com/visual-cpp-build-tools/
+#   (b) GNU toolchain (x86_64-pc-windows-gnu) with MinGW
+#
+# cargo build --workspace works fine (compiles libraries only).
+# cargo test --workspace requires a working linker to produce test executables.
+#
+# To fix: install "Build Tools for Visual Studio" (free) and check
+# "Desktop development with C++" to get the Windows SDK + link.exe.
+#
+# After installing, no config change needed — cargo test will just work.

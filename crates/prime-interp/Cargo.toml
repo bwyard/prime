@@ -1,0 +1,12 @@
+[package]
+name        = "prime-interp"
+description = "Interpolation — easing, lerp, smoothstep, smootherstep"
+version.workspace    = true
+edition.workspace    = true
+license.workspace    = true
+repository.workspace = true
+keywords    = ["easing", "interpolation", "animation", "smoothstep", "lerp"]
+categories  = ["mathematics", "game-engines"]
+
+[dependencies]
+glam = { workspace = true }

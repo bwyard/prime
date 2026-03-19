@@ -1,0 +1,11 @@
+[package]
+name        = "stage-economy"
+description = "Economy systems — loot tables, price curves, balance"
+version.workspace    = true
+edition.workspace    = true
+license.workspace    = true
+repository.workspace = true
+keywords    = ["economy", "game-dev", "loot", "balance", "procedural"]
+categories  = ["mathematics", "game-engines"]
+
+[dependencies]

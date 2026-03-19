@@ -1,0 +1,12 @@
+[package]
+name        = "prime-splines"
+description = "Spline math — Bezier, Catmull-Rom, B-spline, slerp"
+version.workspace    = true
+edition.workspace    = true
+license.workspace    = true
+repository.workspace = true
+keywords    = ["splines", "bezier", "interpolation", "curves", "catmull-rom"]
+categories  = ["mathematics", "game-engines"]
+
+[dependencies]
+glam = { workspace = true }

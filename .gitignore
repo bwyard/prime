@@ -1,0 +1,16 @@
+# Rust
+/target/
+Cargo.lock
+
+# Node / pnpm
+node_modules/
+dist/
+.pnpm-store/
+
+# WASM output (future)
+pkg/
+*.wasm
+
+# OS
+.DS_Store
+Thumbs.db

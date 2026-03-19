@@ -1,0 +1,11 @@
+[package]
+name        = "prime-color"
+description = "Color math — Oklab, sRGB, HSL/HSV, palette generation"
+version.workspace    = true
+edition.workspace    = true
+license.workspace    = true
+repository.workspace = true
+keywords    = ["color", "graphics", "oklab", "srgb", "palette"]
+categories  = ["mathematics", "game-engines"]
+
+[dependencies]

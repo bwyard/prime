@@ -1,0 +1,34 @@
+[workspace]
+members = [
+    # PRIME — pure math foundation
+    "crates/prime-sdf",
+    "crates/prime-noise",
+    "crates/prime-color",
+    "crates/prime-splines",
+    "crates/prime-signal",
+    "crates/prime-random",
+    "crates/prime-interp",
+    "crates/prime-osc",
+    "crates/prime-spatial",
+    "crates/prime-voronoi",
+    # STAGE — game domain systems
+    "crates/stage-nav",
+    "crates/stage-combat",
+    "crates/stage-economy",
+    "crates/stage-quest",
+    "crates/stage-ai",
+    "crates/stage-proc",
+    "crates/stage-loop",
+]
+resolver = "2"
+
+[workspace.dependencies]
+glam     = "0.27"
+rand     = { version = "0.8", features = ["small_rng"] }
+rand_pcg = "0.3"
+
+[workspace.package]
+version    = "0.1.0"
+edition    = "2021"
+license    = "MIT"
+repository = "https://github.com/bwyard/prime"
