@@ -87,14 +87,14 @@ describe('oscStep', () => {
   })
   it('threads forward — generates deterministic sequence', () => {
     const seqA = Array.from<null>({ length: 10 }).reduce(
-      ([samples, p]: [number[], number]) => {
+      ([samples, p]: [number[], number]): [number[], number] => {
         const [y, next] = oscStep(p, 440, 44100, lfoSine)
         return [[...samples, y], next]
       },
       [[], 0] as [number[], number],
     )[0]
     const seqB = Array.from<null>({ length: 10 }).reduce(
-      ([samples, p]: [number[], number]) => {
+      ([samples, p]: [number[], number]): [number[], number] => {
         const [y, next] = oscStep(p, 440, 44100, lfoSine)
         return [[...samples, y], next]
       },

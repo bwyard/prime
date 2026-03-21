@@ -180,8 +180,8 @@ const bridsonStep = (state: BridsonState, p: BridsonParams): BridsonState => {
   const [ax, ay] = state.points[state.active[ai]]
 
   const [candidate, finalSeed] = Array.from<null>({ length: p.maxAttempts }).reduce(
-    ([found, s]: [[number, number] | null, number]) => {
-      if (found !== null) return [found, s] as [[number, number] | null, number]
+    ([found, s]: [[number, number] | null, number]): [[number, number] | null, number] => {
+      if (found !== null) return [found, s]
       const [anglef, s2] = prngNext(s)
       const [distf, s3] = prngNext(s2)
       const angle = anglef * Math.PI * 2

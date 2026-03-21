@@ -70,15 +70,16 @@ fn lerp(a: f32, b: f32, t: f32) -> f32 {
 /// Eight unit gradient vectors evenly spaced around the circle.
 ///
 /// Index is derived from a lattice hash, giving eight possible dot-product orientations.
+const FRAC_1_SQRT_2: f32 = std::f32::consts::FRAC_1_SQRT_2;
 const GRADIENTS: [(f32, f32); 8] = [
     (1.0, 0.0),
-    (0.7071068, 0.7071068),
+    (FRAC_1_SQRT_2, FRAC_1_SQRT_2),
     (0.0, 1.0),
-    (-0.7071068, 0.7071068),
+    (-FRAC_1_SQRT_2, FRAC_1_SQRT_2),
     (-1.0, 0.0),
-    (-0.7071068, -0.7071068),
+    (-FRAC_1_SQRT_2, -FRAC_1_SQRT_2),
     (0.0, -1.0),
-    (0.7071068, -0.7071068),
+    (FRAC_1_SQRT_2, -FRAC_1_SQRT_2),
 ];
 
 /// Map a lattice hash value in [0, 1] to one of the eight gradient vectors.
@@ -295,7 +296,7 @@ pub fn fbm_2d(x: f32, y: f32, octaves: u32, lacunarity: f32, gain: f32) -> f32 {
 /// * `x`    — horizontal coordinate (any finite `f32`)
 /// * `y`    — vertical coordinate (any finite `f32`)
 /// * `seed` — unsigned 32-bit seed; different seeds give independent feature fields.
-///            Seeds `seed` and `seed+1` are used internally for x and y offsets.
+///   Seeds `seed` and `seed+1` are used internally for x and y offsets.
 ///
 /// # Returns
 /// Distance to the nearest feature point, in [0, 1] (clamped).
