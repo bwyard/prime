@@ -1,0 +1,253 @@
+/**
+ * prime-dynamics — Dynamical systems and numerical integration.
+ *
+ * Pure functions for integrating ODEs and simulating nonlinear dynamical
+ * systems. No mutation, no hidden state. Same inputs always produce the same
+ * output.
+ *
+ * Temporal assembly:
+ *   LOAD    ← state, t, dt, derivative fn
+ *   COMPUTE ← RK4 or Euler update rule
+ *   APPEND  ← return new state as tuple
+ *   ADVANCE ← caller folds over time steps with render/reduce
+ */
+
+// ── RK4 integrator ────────────────────────────────────────────────────────────
+
+/**
+ * Advance a scalar state by one 4th-order Runge-Kutta step.
+ *
+ * Math:
+ *   k1 = f(t,        s)
+ *   k2 = f(t + dt/2, s + dt/2 * k1)
+ *   k3 = f(t + dt/2, s + dt/2 * k2)
+ *   k4 = f(t + dt,   s + dt   * k3)
+ *   s' = s + dt/6 * (k1 + 2*k2 + 2*k3 + k4)
+ *
+ * @param state - current scalar state
+ * @param t     - current time (seconds)
+ * @param dt    - time step (seconds)
+ * @param f     - derivative `f(t, state) → ds/dt`
+ * @returns new state after one RK4 step
+ *
+ * @example
+ * // Exponential decay: ds/dt = -s → s(t) = e^(-t)
+ * const s1 = rk4Step(1, 0, 0.01, (_t, s) => -s)
+ * // s1 ≈ e^(-0.01) ≈ 0.99005
+ */
+export const rk4Step = (
+  state: number,
+  t: number,
+  dt: number,
+  f: (t: number, state: number) => number,
+): number => {
+  const k1 = f(t, state)
+  const k2 = f(t + dt * 0.5, state + dt * 0.5 * k1)
+  const k3 = f(t + dt * 0.5, state + dt * 0.5 * k2)
+  const k4 = f(t + dt, state + dt * k3)
+  return state + (dt / 6) * (k1 + 2 * k2 + 2 * k3 + k4)
+}
+
+/**
+ * Advance a `[x, y, z]` state by one 4th-order Runge-Kutta step.
+ *
+ * Used for 3D dynamical systems like Lorenz, Rössler, and Duffing.
+ *
+ * @param state - `[x, y, z]` current state
+ * @param t     - current time (seconds)
+ * @param dt    - time step (seconds)
+ * @param f     - derivative `f(t, [x,y,z]) → [dx, dy, dz]`
+ * @returns new `[x, y, z]` state after one RK4 step
+ *
+ * @example
+ * // Circular motion in the XY plane
+ * const [x1, y1] = rk4Step3([1, 0, 0], 0, 0.01, (_t, [x, y]) => [-y, x, 0])
+ */
+export const rk4Step3 = (
+  state: [number, number, number],
+  t: number,
+  dt: number,
+  f: (t: number, s: [number, number, number]) => [number, number, number],
+): [number, number, number] => {
+  const add = ([ax, ay, az]: [number, number, number], [bx, by, bz]: [number, number, number]): [number, number, number] =>
+    [ax + bx, ay + by, az + bz]
+  const scale = ([dx, dy, dz]: [number, number, number], s: number): [number, number, number] =>
+    [dx * s, dy * s, dz * s]
+
+  const k1 = f(t, state)
+  const k2 = f(t + dt * 0.5, add(state, scale(k1, dt * 0.5)))
+  const k3 = f(t + dt * 0.5, add(state, scale(k2, dt * 0.5)))
+  const k4 = f(t + dt, add(state, scale(k3, dt)))
+
+  const [sx, sy, sz] = state
+  const [k1x, k1y, k1z] = k1
+  const [k2x, k2y, k2z] = k2
+  const [k3x, k3y, k3z] = k3
+  const [k4x, k4y, k4z] = k4
+  return [
+    sx + (dt / 6) * (k1x + 2 * k2x + 2 * k3x + k4x),
+    sy + (dt / 6) * (k1y + 2 * k2y + 2 * k3y + k4y),
+    sz + (dt / 6) * (k1z + 2 * k2z + 2 * k3z + k4z),
+  ]
+}
+
+/**
+ * Advance a scalar state by one forward Euler step.
+ *
+ * First-order accuracy. Use `rk4Step` for higher precision.
+ *
+ * @param state - current scalar state
+ * @param t     - current time
+ * @param dt    - time step
+ * @param f     - derivative `f(t, state) → ds/dt`
+ * @returns `state + dt * f(t, state)`
+ *
+ * @example
+ * const s1 = eulerStep(1, 0, 0.1, (_t, _s) => -1)
+ * // s1 = 0.9
+ */
+export const eulerStep = (
+  state: number,
+  t: number,
+  dt: number,
+  f: (t: number, state: number) => number,
+): number => state + dt * f(t, state)
+
+// ── Lorenz attractor ──────────────────────────────────────────────────────────
+
+/** Lorenz canonical sigma (Prandtl number) = 10 */
+export const LORENZ_SIGMA = 10
+/** Lorenz canonical rho (Rayleigh number) = 28 */
+export const LORENZ_RHO = 28
+/** Lorenz canonical beta (geometric factor) = 8/3 */
+export const LORENZ_BETA = 8 / 3
+
+/**
+ * Advance the Lorenz attractor state by one RK4 step.
+ *
+ * The Lorenz system (1963) is the canonical example of deterministic chaos.
+ * Form uses it to drive procedural animation: x=lateral sway, y=vertical bob,
+ * z=sagittal rotation.
+ *
+ * Math:
+ *   dx/dt = σ(y - x)
+ *   dy/dt = x(ρ - z) - y
+ *   dz/dt = xy - βz
+ *
+ * @param state - `[x, y, z]` current attractor state
+ * @param sigma - Prandtl number (typically 10)
+ * @param rho   - Rayleigh number (typically 28; chaos above ~24.74)
+ * @param beta  - geometric factor (typically 8/3 ≈ 2.667)
+ * @param dt    - time step (keep ≤ 0.01 for numerical stability)
+ * @returns new `[x, y, z]` state
+ *
+ * @example
+ * const s1 = lorenzStep([1, 1, 1], LORENZ_SIGMA, LORENZ_RHO, LORENZ_BETA, 0.01)
+ */
+export const lorenzStep = (
+  state: [number, number, number],
+  sigma: number,
+  rho: number,
+  beta: number,
+  dt: number,
+): [number, number, number] =>
+  rk4Step3(state, 0, dt, (_t, [x, y, z]) => [
+    sigma * (y - x),
+    x * (rho - z) - y,
+    x * y - beta * z,
+  ])
+
+// ── Rössler attractor ─────────────────────────────────────────────────────────
+
+/**
+ * Advance the Rössler attractor state by one RK4 step.
+ *
+ * Simpler single-scroll chaotic attractor, smoother than Lorenz.
+ *
+ * Math:
+ *   dx/dt = -(y + z)
+ *   dy/dt = x + a*y
+ *   dz/dt = b + z*(x - c)
+ *
+ * @param state - `[x, y, z]` current state
+ * @param a     - typically 0.2
+ * @param b     - typically 0.2
+ * @param c     - typically 5.7 (chaos above ~3.0)
+ * @param dt    - time step (keep ≤ 0.05)
+ * @returns new `[x, y, z]` Rössler state
+ *
+ * @example
+ * const s1 = rosslerStep([1, 0, 0], 0.2, 0.2, 5.7, 0.01)
+ */
+export const rosslerStep = (
+  state: [number, number, number],
+  a: number,
+  b: number,
+  c: number,
+  dt: number,
+): [number, number, number] =>
+  rk4Step3(state, 0, dt, (_t, [x, y, z]) => [
+    -(y + z),
+    x + a * y,
+    b + z * (x - c),
+  ])
+
+// ── Duffing oscillator ────────────────────────────────────────────────────────
+
+/** Duffing oscillator parameters. */
+export interface DuffingParams {
+  /** Damping coefficient (typically 0.3) */
+  delta: number
+  /** Linear stiffness (typically -1.0) */
+  alpha: number
+  /** Cubic stiffness (typically 1.0) */
+  beta: number
+  /** Driving amplitude (typically 0.37) */
+  gamma: number
+  /** Driving frequency (typically 1.2) */
+  omega: number
+}
+
+/**
+ * Advance the Duffing oscillator state by one RK4 step.
+ *
+ * Models a damped, driven nonlinear spring. State is `[position, velocity]`.
+ *
+ * Math:
+ *   dx/dt = v
+ *   dv/dt = -δv - αx - βx³ + γcos(ωt)
+ *
+ * @param state - `[x, v]` position and velocity
+ * @param t     - current time (seconds; used for driving term)
+ * @param p     - Duffing parameters
+ * @param dt    - time step
+ * @returns new `[x, v]` state
+ *
+ * @example
+ * const p = { delta: 0.3, alpha: -1, beta: 1, gamma: 0.37, omega: 1.2 }
+ * const [, v1] = duffingStep([0, 0], 0, p, 0.01)
+ * // v1 > 0 (driving force kicks it)
+ */
+export const duffingStep = (
+  state: [number, number],
+  t: number,
+  p: DuffingParams,
+  dt: number,
+): [number, number] => {
+  const { delta, alpha, beta, gamma, omega } = p
+  const deriv = (ti: number, [x, v]: [number, number]): [number, number] => [
+    v,
+    -delta * v - alpha * x - beta * x ** 3 + gamma * Math.cos(omega * ti),
+  ]
+
+  const [x0, v0] = state
+  const [k1x, k1v] = deriv(t, state)
+  const [k2x, k2v] = deriv(t + dt * 0.5, [x0 + dt * 0.5 * k1x, v0 + dt * 0.5 * k1v])
+  const [k3x, k3v] = deriv(t + dt * 0.5, [x0 + dt * 0.5 * k2x, v0 + dt * 0.5 * k2v])
+  const [k4x, k4v] = deriv(t + dt, [x0 + dt * k3x, v0 + dt * k3v])
+
+  return [
+    x0 + (dt / 6) * (k1x + 2 * k2x + 2 * k3x + k4x),
+    v0 + (dt / 6) * (k1v + 2 * k2v + 2 * k3v + k4v),
+  ]
+}
