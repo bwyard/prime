@@ -196,7 +196,7 @@ fn bridson_too_close(x: f32, y: f32, grid: &[Option<(f32, f32)>], p: &BridsonPar
     let y1 = (cy + r + 1).min(p.rows);
     (y0..y1).any(|gy|
         (x0..x1).any(|gx|
-            grid[gy * p.cols + gx].map_or(false, |(px, py)| {
+            grid[gy * p.cols + gx].is_some_and(|(px, py)| {
                 let dx = x - px;
                 let dy = y - py;
                 dx * dx + dy * dy < p.min_dist * p.min_dist
