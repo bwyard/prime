@@ -60,6 +60,15 @@ importers:
         specifier: ^1.6.0
         version: 1.6.1
 
+  packages/prime-render:
+    devDependencies:
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+      vitest:
+        specifier: ^1.6.0
+        version: 1.6.1
+
   packages/prime-sdf:
     devDependencies:
       typescript:
@@ -104,24 +113,6 @@ importers:
       vitest:
         specifier: ^1.6.0
         version: 1.6.1
-
-  packages/stage-ai: {}
-
-  packages/stage-combat: {}
-
-  packages/stage-economy: {}
-
-  packages/stage-input: {}
-
-  packages/stage-loop: {}
-
-  packages/stage-nav: {}
-
-  packages/stage-proc: {}
-
-  packages/stage-quest: {}
-
-  packages/stage-world: {}
 
 packages:
 
