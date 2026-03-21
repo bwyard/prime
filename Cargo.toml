@@ -11,14 +11,8 @@ members = [
     "crates/prime-osc",
     "crates/prime-spatial",
     "crates/prime-voronoi",
-    # STAGE — game domain systems
-    "crates/stage-nav",
-    "crates/stage-combat",
-    "crates/stage-economy",
-    "crates/stage-quest",
-    "crates/stage-ai",
-    "crates/stage-proc",
-    "crates/stage-loop",
+    "crates/prime-diffusion",
+    "crates/prime-dynamics",
 ]
 resolver = "2"
 
