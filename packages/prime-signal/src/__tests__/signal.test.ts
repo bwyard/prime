@@ -5,7 +5,7 @@ const EPS = 1e-4
 
 describe('smoothdamp', () => {
   it('approaches target over time', () => {
-    const [pos] = Array.from({ length: 200 }).reduce(
+    const [pos] = Array.from<null>({ length: 200 }).reduce(
       ([p, v]: [number, number]) => smoothdamp(p, 10, v, 0.3, 0.016),
       [0, 0] as [number, number],
     )
@@ -13,7 +13,7 @@ describe('smoothdamp', () => {
   })
 
   it('does not overshoot', () => {
-    const { maxPos } = Array.from({ length: 300 }).reduce(
+    const { maxPos } = Array.from<null>({ length: 300 }).reduce(
       ({ pos, vel, maxPos }: { pos: number; vel: number; maxPos: number }) => {
         const [p, v] = smoothdamp(pos, 10, vel, 0.3, 0.016)
         return { pos: p, vel: v, maxPos: Math.max(maxPos, p) }
@@ -29,7 +29,7 @@ describe('smoothdamp', () => {
   })
 
   it('velocity decays to zero', () => {
-    const [, vel] = Array.from({ length: 500 }).reduce(
+    const [, vel] = Array.from<null>({ length: 500 }).reduce(
       ([p, v]: [number, number]) => smoothdamp(p, 10, v, 0.3, 0.016),
       [0, 0] as [number, number],
     )
@@ -43,7 +43,7 @@ describe('smoothdamp', () => {
 
 describe('spring', () => {
   it('approaches target', () => {
-    const [pos] = Array.from({ length: 500 }).reduce(
+    const [pos] = Array.from<null>({ length: 500 }).reduce(
       ([p, v]: [number, number]) => spring(p, v, 10, 100, 20, 0.016),
       [0, 0] as [number, number],
     )
@@ -57,7 +57,7 @@ describe('spring', () => {
   })
 
   it('underdamped spring overshoots', () => {
-    const { max } = Array.from({ length: 100 }).reduce(
+    const { max } = Array.from<null>({ length: 100 }).reduce(
       ({ pos, vel, max }: { pos: number; vel: number; max: number }) => {
         const [p, v] = spring(pos, vel, 10, 200, 5, 0.016)
         return { pos: p, vel: v, max: Math.max(max, p) }
@@ -70,7 +70,7 @@ describe('spring', () => {
 
 describe('lowPass', () => {
   it('converges to input', () => {
-    const f = Array.from({ length: 300 }).reduce(
+    const f = Array.from<null>({ length: 300 }).reduce(
       (prev: number) => lowPass(prev, 1, 0.1, 0.016),
       0,
     )
@@ -92,7 +92,7 @@ describe('lowPass', () => {
 
 describe('highPass', () => {
   it('DC signal approaches zero', () => {
-    const [out] = Array.from({ length: 300 }).reduce(
+    const [out] = Array.from<null>({ length: 300 }).reduce(
       ([, lp]: [number, number]) => highPass(lp, 1, 0.05, 0.016),
       [0, 0] as [number, number],
     )

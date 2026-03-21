@@ -2,6 +2,10 @@
 //!
 //! All functions are pure (LOAD + COMPUTE only). No mutation, no side effects,
 //! no hidden state. Same inputs always produce the same output.
+
+// Oklab matrix constants are from Björn Ottosson's original paper and are intentionally
+// specified at full f64 precision for documentation accuracy, even though f32 truncates them.
+#![allow(clippy::excessive_precision)]
 //!
 //! Colors are represented as bare `(f32, f32, f32)` tuples for simplicity and
 //! FFI/WASM interop. No structs.

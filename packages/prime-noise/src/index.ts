@@ -267,7 +267,7 @@ export const fbm2d = (
   lacunarity: number,
   gain: number,
 ): number => {
-  const [value] = Array.from({ length: octaves }).reduce(
+  const [value] = Array.from<null>({ length: octaves }).reduce(
     ([acc, freq, amp]: [number, number, number]) => [
       acc + amp * perlin2d(x * freq, y * freq),
       freq * lacunarity,

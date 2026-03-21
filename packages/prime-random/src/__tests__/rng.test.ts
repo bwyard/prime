@@ -38,14 +38,14 @@ describe('prngNext', () => {
   })
 
   it('threads forward — sequence is deterministic', () => {
-    const seqA = Array.from({ length: 10 }).reduce(
+    const seqA = Array.from<null>({ length: 10 }).reduce(
       ([vals, s]: [number[], number]) => {
         const [v, next] = prngNext(s)
         return [[...vals, v], next]
       },
       [[], 99] as [number[], number],
     )[0]
-    const seqB = Array.from({ length: 10 }).reduce(
+    const seqB = Array.from<null>({ length: 10 }).reduce(
       ([vals, s]: [number[], number]) => {
         const [v, next] = prngNext(s)
         return [[...vals, v], next]
@@ -99,7 +99,7 @@ describe('prngBool', () => {
   })
 
   it('roughly half at p=0.5', () => {
-    const trues = Array.from({ length: 10000 }).reduce(
+    const trues = Array.from<null>({ length: 10000 }).reduce(
       ([count, s]: [number, number]) => {
         const [b, next] = prngBool(s, 0.5)
         return [count + (b ? 1 : 0), next]
@@ -169,7 +169,7 @@ describe('weightedChoice', () => {
 
   it('distribution matches weights (1:2:1)', () => {
     const n = 10000
-    const counts = Array.from({ length: n }).reduce(
+    const counts = Array.from<null>({ length: n }).reduce(
       ([acc, s]: [number[], number]) => {
         const [idx, next] = weightedChoice(s, [1, 2, 1])
         return [acc.map((c, j) => (j === idx ? c + 1 : c)), next]

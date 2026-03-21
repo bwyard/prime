@@ -179,7 +179,7 @@ const bridsonStep = (state: BridsonState, p: BridsonParams): BridsonState => {
   const ai = Math.floor(aiF * state.active.length)
   const [ax, ay] = state.points[state.active[ai]]
 
-  const [candidate, finalSeed] = Array.from({ length: p.maxAttempts }).reduce(
+  const [candidate, finalSeed] = Array.from<null>({ length: p.maxAttempts }).reduce(
     ([found, s]: [[number, number] | null, number]) => {
       if (found !== null) return [found, s] as [[number, number] | null, number]
       const [anglef, s2] = prngNext(s)
@@ -264,7 +264,7 @@ export const poissonDisk2d = (
   const maxPoints = Math.ceil((width * height) / (Math.PI * (minDist / 2) ** 2)) * 4
   const maxSteps = maxPoints * 2
 
-  const final = Array.from({ length: maxSteps }).reduce(
+  const final = Array.from<null>({ length: maxSteps }).reduce(
     (state: BridsonState) => (state.active.length === 0 ? state : bridsonStep(state, p)),
     initial,
   )
