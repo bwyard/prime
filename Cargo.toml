@@ -13,6 +13,7 @@ members = [
     "crates/prime-voronoi",
     "crates/prime-diffusion",
     "crates/prime-dynamics",
+    "crates/prime-render",
 ]
 resolver = "2"
 
