@@ -100,7 +100,7 @@ describe('prngBool', () => {
 
   it('roughly half at p=0.5', () => {
     const trues = Array.from<null>({ length: 10000 }).reduce(
-      ([count, s]: [number, number]) => {
+      ([count, s]: [number, number]): [number, number] => {
         const [b, next] = prngBool(s, 0.5)
         return [count + (b ? 1 : 0), next]
       },
