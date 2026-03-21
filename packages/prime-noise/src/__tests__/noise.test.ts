@@ -187,7 +187,7 @@ describe('fbm2d', () => {
     const gain = 0.5
 
     const [expected] = Array.from<null>({ length: octaves }).reduce(
-      ([acc, freq, amp]: [number, number, number]) => [
+      ([acc, freq, amp]: [number, number, number]): [number, number, number] => [
         acc + amp * perlin2d(x * freq, y * freq),
         freq * lacunarity,
         amp * gain,
