@@ -8,7 +8,12 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { valueNoise2d, perlin2d, fbm2d, worley2d } from '../index'
+import {
+  valueNoise2d, perlin2d, fbm2d, worley2d,
+  valueNoise3d, perlin3d, fbm3d,
+  simplex2d, simplex3d,
+  domainWarp2d, domainWarp3d,
+} from '../index'
 
 const EPSILON = 1e-5
 
@@ -270,5 +275,126 @@ describe('cross-function consistency', () => {
     const pn = perlin2d(0.5, 0.5)
     // Different algorithms — should not coincidentally match
     expect(vn).not.toBeCloseTo(pn, 3)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 3-D noise
+// ---------------------------------------------------------------------------
+
+const EPS = 1e-5
+
+describe('valueNoise3d', () => {
+  it('range [0, 1]', () => {
+    [[0.5, 0.5, 0.5], [1.234, 5.678, 2.345], [-3.1, 2.9, 1.1]].forEach(([x, y, z]) => {
+      const v = valueNoise3d(x, y, z)
+      expect(v).toBeGreaterThanOrEqual(0)
+      expect(v).toBeLessThanOrEqual(1)
+    })
+  })
+
+  it('deterministic', () => {
+    expect(valueNoise3d(1.1, 2.2, 3.3)).toBe(valueNoise3d(1.1, 2.2, 3.3))
+  })
+
+  it('different coords differ', () => {
+    expect(valueNoise3d(0.5, 0.5, 0.5)).not.toBe(valueNoise3d(1.5, 0.5, 0.5))
+  })
+})
+
+describe('perlin3d', () => {
+  it('range approx [-1.5, 1.5]', () => {
+    [[0.5, 0.5, 0.5], [1.234, 5.678, 2.3], [-3.1, 2.9, 0.7]].forEach(([x, y, z]) => {
+      const v = perlin3d(x, y, z)
+      expect(v).toBeGreaterThanOrEqual(-1.5)
+      expect(v).toBeLessThanOrEqual(1.5)
+    })
+  })
+
+  it('deterministic', () => {
+    expect(perlin3d(1.1, 2.2, 3.3)).toBe(perlin3d(1.1, 2.2, 3.3))
+  })
+
+  it('zero at integer lattice points', () => {
+    expect(Math.abs(perlin3d(0, 0, 0))).toBeLessThan(EPS)
+    expect(Math.abs(perlin3d(1, 2, 3))).toBeLessThan(EPS)
+  })
+
+  it('different coords differ', () => {
+    expect(perlin3d(0.3, 0.7, 0.5)).not.toBe(perlin3d(0.7, 0.3, 0.5))
+  })
+})
+
+describe('fbm3d', () => {
+  it('0 octaves returns 0', () => {
+    expect(fbm3d(1, 2, 3, 0, 2, 0.5)).toBe(0)
+  })
+
+  it('1 octave equals perlin3d', () => {
+    expect(Math.abs(fbm3d(0.4, 0.8, 0.2, 1, 2, 0.5) - perlin3d(0.4, 0.8, 0.2))).toBeLessThan(EPS)
+  })
+
+  it('deterministic', () => {
+    expect(fbm3d(0.5, 0.5, 0.5, 6, 2, 0.5)).toBe(fbm3d(0.5, 0.5, 0.5, 6, 2, 0.5))
+  })
+
+  it('bounded with standard params', () => {
+    expect(Math.abs(fbm3d(0.3, 0.7, 0.2, 8, 2, 0.5))).toBeLessThan(3)
+  })
+})
+
+describe('simplex2d', () => {
+  it('range approx [-1.1, 1.1]', () => {
+    [[0.5, 0.5], [1.2, 3.4], [-2.1, 0.7]].forEach(([x, y]) => {
+      const v = simplex2d(x, y)
+      expect(v).toBeGreaterThanOrEqual(-1.1)
+      expect(v).toBeLessThanOrEqual(1.1)
+    })
+  })
+
+  it('deterministic', () => {
+    expect(simplex2d(1.1, 2.2)).toBe(simplex2d(1.1, 2.2))
+  })
+
+  it('different coords differ', () => {
+    expect(simplex2d(0.3, 0.7)).not.toBe(simplex2d(0.7, 0.3))
+  })
+})
+
+describe('simplex3d', () => {
+  it('range approx [-1.1, 1.1]', () => {
+    [[0.5, 0.5, 0.5], [1.2, 3.4, 2.1], [-2.1, 0.7, 1.3]].forEach(([x, y, z]) => {
+      const v = simplex3d(x, y, z)
+      expect(v).toBeGreaterThanOrEqual(-1.1)
+      expect(v).toBeLessThanOrEqual(1.1)
+    })
+  })
+
+  it('deterministic', () => {
+    expect(simplex3d(1.1, 2.2, 3.3)).toBe(simplex3d(1.1, 2.2, 3.3))
+  })
+
+  it('different coords differ', () => {
+    expect(simplex3d(0.3, 0.7, 0.2)).not.toBe(simplex3d(0.7, 0.3, 0.2))
+  })
+})
+
+describe('domainWarp2d', () => {
+  it('deterministic', () => {
+    expect(domainWarp2d(0.3, 0.7, 4, 2, 0.5, 1)).toBe(domainWarp2d(0.3, 0.7, 4, 2, 0.5, 1))
+  })
+
+  it('differs from plain fbm2d', () => {
+    expect(domainWarp2d(0.3, 0.7, 4, 2, 0.5, 1)).not.toBe(fbm2d(0.3, 0.7, 4, 2, 0.5))
+  })
+})
+
+describe('domainWarp3d', () => {
+  it('deterministic', () => {
+    expect(domainWarp3d(0.3, 0.7, 0.2, 4, 2, 0.5, 1)).toBe(domainWarp3d(0.3, 0.7, 0.2, 4, 2, 0.5, 1))
+  })
+
+  it('differs from plain fbm3d', () => {
+    expect(domainWarp3d(0.3, 0.7, 0.2, 4, 2, 0.5, 1)).not.toBe(fbm3d(0.3, 0.7, 0.2, 4, 2, 0.5))
   })
 })
