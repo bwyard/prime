@@ -416,4 +416,26 @@ mod tests {
         let quad = deadzone(0.55, 0.1, 2.0);
         assert!(quad < linear, "quadratic curve should be smaller near deadzone");
     }
+
+    // ── spring edge cases ─────────────────────────────────────────────────────
+
+    #[test]
+    fn spring_zero_stiffness_no_nan() {
+        let (v1, vel1) = spring(1.0, 0.5, 0.0, 0.0, 0.5, 0.016);
+        assert!(v1.is_finite(), "value must be finite with stiffness=0; got {v1}");
+        assert!(vel1.is_finite(), "velocity must be finite with stiffness=0; got {vel1}");
+    }
+
+    #[test]
+    fn spring_zero_damping_accelerates_toward_target() {
+        let (_, vel) = spring(0.0, 0.0, 1.0, 100.0, 0.0, 0.016);
+        assert!(vel > 0.0, "undamped spring should accelerate toward target; vel={vel}");
+    }
+
+    #[test]
+    fn smoothdamp_zero_smooth_time_no_nan() {
+        let (v, vel) = smoothdamp(0.0, 1.0, 0.0, 0.0, 0.016);
+        assert!(v.is_finite() && vel.is_finite(),
+            "smooth_time=0 must not produce NaN/Inf; v={v} vel={vel}");
+    }
 }

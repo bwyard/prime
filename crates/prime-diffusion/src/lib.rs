@@ -318,4 +318,38 @@ mod tests {
         });
         assert!(x > 0.0, "GBM chain must stay positive; x={x}");
     }
+
+    // ── box_muller near-zero u1 ───────────────────────────────────────────────
+
+    #[test]
+    fn box_muller_near_zero_u1_is_finite() {
+        // u1 near 0 (but > 0) → ln is large negative → result is large but finite.
+        let w = box_muller(f32::MIN_POSITIVE, 0.5);
+        assert!(w.is_finite(), "box_muller(MIN_POSITIVE, 0.5) produced non-finite: {w}");
+    }
+
+    #[test]
+    fn box_muller_typical_inputs_finite() {
+        // Normal operating range: u1, u2 in (0, 1).
+        let w = box_muller(0.5, 0.5);
+        assert!(w.is_finite(), "box_muller(0.5, 0.5) produced non-finite: {w}");
+        assert!((w).abs() < 10.0, "box_muller(0.5, 0.5) suspiciously large: {w}");
+    }
+
+    // ── ou_step / gbm_step edge cases ─────────────────────────────────────────
+
+    #[test]
+    fn ou_step_zero_theta_no_reversion() {
+        // theta=0 → no mean-reversion, only diffusion term.
+        let x = ou_step(5.0, 0.0, 0.0, 0.1, 0.01, 1.0);
+        // Should not snap to mu; should be near 5.0 + small diffusion.
+        assert!((x - 5.0).abs() < 0.5, "theta=0: x moved too far: {x}");
+    }
+
+    #[test]
+    fn gbm_step_zero_mu_sigma_unchanged() {
+        // mu=0, sigma=0, w=anything → GBM exponent = 0 → x unchanged.
+        let x = gbm_step(2.5, 0.0, 0.0, 0.01, 1.0);
+        assert!((x - 2.5).abs() < EPSILON, "gbm_step with sigma=mu=0 should return x; got {x}");
+    }
 }

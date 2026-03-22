@@ -760,4 +760,40 @@ mod tests {
         // Should be roughly mid-gray in sRGB (not necessarily 0.5 exactly due to Oklab L)
         assert!(r > 0.1 && r < 0.9, "gray value out of expected range: {}", r);
     }
+
+    // ── out-of-range [0,1] inputs ─────────────────────────────────────────────
+
+    #[test]
+    fn srgb_to_oklab_over_range_is_finite() {
+        // sRGB > 1.0 (HDR-style) — must not produce NaN.
+        let (l, a, b) = srgb_to_oklab(1.5, 0.5, 0.5);
+        assert!(l.is_finite() && a.is_finite() && b.is_finite(),
+            "srgb_to_oklab(1.5,...) produced non-finite: {:?}", (l, a, b));
+    }
+
+    #[test]
+    fn srgb_to_linear_over_range_is_finite() {
+        let (lr, lg, lb) = srgb_to_linear(2.0, 0.0, 0.0);
+        assert!(lr.is_finite() && lg.is_finite() && lb.is_finite());
+    }
+
+    #[test]
+    fn oklab_to_srgb_out_of_gamut_is_finite() {
+        // Push an extreme Oklab value — output may be out of [0,1] but must be finite.
+        let (r, g, b) = oklab_to_srgb(1.0, 0.5, 0.5);
+        assert!(r.is_finite() && g.is_finite() && b.is_finite(),
+            "oklab_to_srgb with large a/b produced non-finite: {:?}", (r, g, b));
+    }
+
+    #[test]
+    fn hsl_to_srgb_hue_boundary_is_finite() {
+        // h=0.0 and h=1.0 are both valid boundary values — must be finite.
+        let at_0 = hsl_to_srgb(0.0, 1.0, 0.5);
+        let at_1 = hsl_to_srgb(1.0, 1.0, 0.5);
+        assert!(at_0.0.is_finite() && at_0.1.is_finite() && at_0.2.is_finite());
+        assert!(at_1.0.is_finite() && at_1.1.is_finite() && at_1.2.is_finite());
+        // Both endpoints should be red-family (high red channel)
+        assert!(at_0.0 > 0.9 && at_1.0 > 0.9,
+            "h=0 and h=1 should both be red-family; got {:?} and {:?}", at_0, at_1);
+    }
 }
