@@ -14,6 +14,7 @@ members = [
     "crates/prime-diffusion",
     "crates/prime-dynamics",
     "crates/prime-render",
+    "crates/prime-wasm",
 ]
 resolver = "2"
 

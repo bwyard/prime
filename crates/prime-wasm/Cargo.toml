@@ -1,0 +1,30 @@
+[package]
+name = "prime-wasm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "WASM bindings for the prime math library"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wasm-bindgen = "0.2"
+glam         = { workspace = true }
+prime-noise    = { path = "../prime-noise" }
+prime-color    = { path = "../prime-color" }
+prime-sdf      = { path = "../prime-sdf" }
+prime-interp   = { path = "../prime-interp" }
+prime-signal   = { path = "../prime-signal" }
+prime-random   = { path = "../prime-random" }
+prime-osc      = { path = "../prime-osc" }
+prime-spatial  = { path = "../prime-spatial" }
+prime-splines  = { path = "../prime-splines" }
+prime-dynamics = { path = "../prime-dynamics" }
+prime-diffusion = { path = "../prime-diffusion" }
+prime-voronoi  = { path = "../prime-voronoi" }
+prime-render   = { path = "../prime-render" }
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3"
