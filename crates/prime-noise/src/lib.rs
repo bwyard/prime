@@ -18,10 +18,10 @@
 ///
 /// Used internally to construct lattice hashes without external RNG crates.
 #[inline(always)]
-fn hash_u32(mut x: u32) -> u32 {
-    x = x.wrapping_add(0x6D2B79F5);
-    x = (x ^ (x >> 15)).wrapping_mul(x | 1);
-    x = x ^ (x.wrapping_add((x ^ (x >> 7)).wrapping_mul(x | 61)));
+fn hash_u32(x: u32) -> u32 {
+    let x = x.wrapping_add(0x6D2B79F5);
+    let x = (x ^ (x >> 15)).wrapping_mul(x | 1);
+    let x = x ^ x.wrapping_add((x ^ (x >> 7)).wrapping_mul(x | 61));
     x ^ (x >> 14)
 }
 
