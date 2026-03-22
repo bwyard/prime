@@ -648,4 +648,47 @@ mod tests {
         let expected_w = std::f32::consts::FRAC_1_SQRT_2;
         assert!((mid.3.abs() - expected_w).abs() < 1e-3, "w={}", mid.3);
     }
+
+    // ── degenerate control points (all equal) ─────────────────────────────────
+
+    #[test]
+    fn bezier_quadratic_degenerate_returns_constant() {
+        assert!((bezier_quadratic(0.5, 3.0, 3.0, 3.0) - 3.0).abs() < EPSILON);
+    }
+
+    #[test]
+    fn bezier_cubic_degenerate_returns_constant() {
+        assert!((bezier_cubic(0.5, 2.0, 2.0, 2.0, 2.0) - 2.0).abs() < EPSILON);
+    }
+
+    #[test]
+    fn catmull_rom_degenerate_returns_constant() {
+        assert!((catmull_rom(0.5, 5.0, 5.0, 5.0, 5.0) - 5.0).abs() < EPSILON);
+    }
+
+    #[test]
+    fn hermite_degenerate_zero_tangents_returns_endpoints() {
+        // p0=p1, m0=m1=0 → flat line
+        assert!((hermite(0.0, 1.0, 0.0, 1.0, 0.0) - 1.0).abs() < EPSILON);
+        assert!((hermite(1.0, 1.0, 0.0, 1.0, 0.0) - 1.0).abs() < EPSILON);
+        assert!((hermite(0.5, 1.0, 0.0, 1.0, 0.0) - 1.0).abs() < EPSILON);
+    }
+
+    #[test]
+    fn b_spline_cubic_degenerate_returns_constant() {
+        assert!((b_spline_cubic(0.5, 4.0, 4.0, 4.0, 4.0) - 4.0).abs() < EPSILON);
+    }
+
+    // ── t outside [0, 1] ──────────────────────────────────────────────────────
+
+    #[test]
+    fn bezier_cubic_extrapolates_beyond_t1() {
+        // t > 1 → extrapolation, result should be finite
+        assert!(bezier_cubic(1.5, 0.0, 0.3, 0.7, 1.0).is_finite());
+    }
+
+    #[test]
+    fn catmull_rom_extrapolates_below_t0() {
+        assert!(catmull_rom(-0.5, 0.0, 1.0, 2.0, 3.0).is_finite());
+    }
 }

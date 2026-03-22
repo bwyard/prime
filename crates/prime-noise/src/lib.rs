@@ -146,9 +146,9 @@ pub fn value_noise_2d(x: f32, y: f32) -> f32 {
     let ty = smoothstep(fy);
 
     let v00 = hash_2d(xi, yi);
-    let v10 = hash_2d(xi + 1, yi);
-    let v01 = hash_2d(xi, yi + 1);
-    let v11 = hash_2d(xi + 1, yi + 1);
+    let v10 = hash_2d(xi.wrapping_add(1), yi);
+    let v01 = hash_2d(xi, yi.wrapping_add(1));
+    let v11 = hash_2d(xi.wrapping_add(1), yi.wrapping_add(1));
 
     let bottom = lerp(v00, v10, tx);
     let top = lerp(v01, v11, tx);
@@ -208,9 +208,9 @@ pub fn perlin_2d(x: f32, y: f32) -> f32 {
     let ty = smoothstep(fy);
 
     let g00 = gradient(hash_2d(xi, yi));
-    let g10 = gradient(hash_2d(xi + 1, yi));
-    let g01 = gradient(hash_2d(xi, yi + 1));
-    let g11 = gradient(hash_2d(xi + 1, yi + 1));
+    let g10 = gradient(hash_2d(xi.wrapping_add(1), yi));
+    let g01 = gradient(hash_2d(xi, yi.wrapping_add(1)));
+    let g11 = gradient(hash_2d(xi.wrapping_add(1), yi.wrapping_add(1)));
 
     let n00 = grad_dot(g00, fx, fy);
     let n10 = grad_dot(g10, fx - 1.0, fy);
@@ -442,14 +442,18 @@ pub fn value_noise_3d(x: f32, y: f32, z: f32) -> f32 {
     let ty = smoothstep(fy);
     let tz = smoothstep(fz);
 
-    let v000 = hash_3d(xi,     yi,     zi    );
-    let v100 = hash_3d(xi + 1, yi,     zi    );
-    let v010 = hash_3d(xi,     yi + 1, zi    );
-    let v110 = hash_3d(xi + 1, yi + 1, zi    );
-    let v001 = hash_3d(xi,     yi,     zi + 1);
-    let v101 = hash_3d(xi + 1, yi,     zi + 1);
-    let v011 = hash_3d(xi,     yi + 1, zi + 1);
-    let v111 = hash_3d(xi + 1, yi + 1, zi + 1);
+    let xi1 = xi.wrapping_add(1);
+    let yi1 = yi.wrapping_add(1);
+    let zi1 = zi.wrapping_add(1);
+
+    let v000 = hash_3d(xi,  yi,  zi );
+    let v100 = hash_3d(xi1, yi,  zi );
+    let v010 = hash_3d(xi,  yi1, zi );
+    let v110 = hash_3d(xi1, yi1, zi );
+    let v001 = hash_3d(xi,  yi,  zi1);
+    let v101 = hash_3d(xi1, yi,  zi1);
+    let v011 = hash_3d(xi,  yi1, zi1);
+    let v111 = hash_3d(xi1, yi1, zi1);
 
     let bot = lerp(lerp(v000, v100, tx), lerp(v010, v110, tx), ty);
     let top = lerp(lerp(v001, v101, tx), lerp(v011, v111, tx), ty);
@@ -499,14 +503,18 @@ pub fn perlin_3d(x: f32, y: f32, z: f32) -> f32 {
     let ty = smoothstep(fy);
     let tz = smoothstep(fz);
 
-    let g000 = gradient_3d(hash_3d(xi,     yi,     zi    ));
-    let g100 = gradient_3d(hash_3d(xi + 1, yi,     zi    ));
-    let g010 = gradient_3d(hash_3d(xi,     yi + 1, zi    ));
-    let g110 = gradient_3d(hash_3d(xi + 1, yi + 1, zi    ));
-    let g001 = gradient_3d(hash_3d(xi,     yi,     zi + 1));
-    let g101 = gradient_3d(hash_3d(xi + 1, yi,     zi + 1));
-    let g011 = gradient_3d(hash_3d(xi,     yi + 1, zi + 1));
-    let g111 = gradient_3d(hash_3d(xi + 1, yi + 1, zi + 1));
+    let xi1 = xi.wrapping_add(1);
+    let yi1 = yi.wrapping_add(1);
+    let zi1 = zi.wrapping_add(1);
+
+    let g000 = gradient_3d(hash_3d(xi,  yi,  zi ));
+    let g100 = gradient_3d(hash_3d(xi1, yi,  zi ));
+    let g010 = gradient_3d(hash_3d(xi,  yi1, zi ));
+    let g110 = gradient_3d(hash_3d(xi1, yi1, zi ));
+    let g001 = gradient_3d(hash_3d(xi,  yi,  zi1));
+    let g101 = gradient_3d(hash_3d(xi1, yi,  zi1));
+    let g011 = gradient_3d(hash_3d(xi,  yi1, zi1));
+    let g111 = gradient_3d(hash_3d(xi1, yi1, zi1));
 
     let n000 = grad_dot_3d(g000, fx,       fy,       fz      );
     let n100 = grad_dot_3d(g100, fx - 1.0, fy,       fz      );
@@ -1154,5 +1162,47 @@ mod tests {
     fn domain_warp_3d_bounded() {
         let v = domain_warp_3d(0.3, 0.7, 0.2, 4, 2.0, 0.5, 1.0);
         assert!(v.abs() < 4.0, "domain_warp_3d={v}");
+    }
+
+    // ── large / negative / zero inputs ───────────────────────────────────────
+
+    #[test]
+    fn value_noise_2d_large_inputs_finite() {
+        assert!(value_noise_2d(1e10, 1e10).is_finite());
+    }
+
+    #[test]
+    fn perlin_2d_negative_inputs_finite() {
+        assert!(perlin_2d(-100.0, -200.0).is_finite());
+    }
+
+    #[test]
+    fn simplex_2d_zero_input_finite() {
+        assert!(simplex_2d(0.0, 0.0).is_finite());
+    }
+
+    #[test]
+    fn simplex_3d_large_inputs_finite() {
+        assert!(simplex_3d(1e6, 1e6, 1e6).is_finite());
+    }
+
+    #[test]
+    fn fbm_2d_zero_octaves_returns_zero() {
+        assert_eq!(fbm_2d(0.5, 0.5, 0, 2.0, 0.5), 0.0);
+    }
+
+    #[test]
+    fn fbm_3d_zero_octaves_returns_zero_edge() {
+        assert_eq!(fbm_3d(0.5, 0.5, 0.5, 0, 2.0, 0.5), 0.0);
+    }
+
+    #[test]
+    fn value_noise_3d_negative_inputs_finite() {
+        assert!(value_noise_3d(-50.0, -50.0, -50.0).is_finite());
+    }
+
+    #[test]
+    fn perlin_3d_large_inputs_finite() {
+        assert!(perlin_3d(1e8, 1e8, 1e8).is_finite());
     }
 }

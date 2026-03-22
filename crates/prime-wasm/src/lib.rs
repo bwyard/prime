@@ -217,6 +217,34 @@ pub fn prng_next(seed: f64) -> Box<[f64]> {
     vec![v as f64, next as f64].into_boxed_slice()
 }
 
+/// Sample uniform f32 in `[min, max]`. Returns `[value, next_seed]`.
+#[wasm_bindgen]
+pub fn prng_range_f32(seed: f64, min: f32, max: f32) -> Box<[f64]> {
+    let (v, next) = prime_random::prng_range_f32(seed as u32, min, max);
+    vec![v as f64, next as f64].into_boxed_slice()
+}
+
+/// Sample uniform integer in `[0, n)`. Returns `[index, next_seed]`.
+#[wasm_bindgen]
+pub fn prng_range_usize(seed: f64, n: f64) -> Box<[f64]> {
+    let (v, next) = prime_random::prng_range_usize(seed as u32, n as usize);
+    vec![v as f64, next as f64].into_boxed_slice()
+}
+
+/// Bernoulli trial with probability `p`. Returns `[0 or 1, next_seed]`.
+#[wasm_bindgen]
+pub fn prng_bool(seed: f64, p: f32) -> Box<[f64]> {
+    let (v, next) = prime_random::prng_bool(seed as u32, p);
+    vec![if v { 1.0 } else { 0.0 }, next as f64].into_boxed_slice()
+}
+
+/// Poisson-disk 2D sampling. Returns flat `[x0, y0, x1, y1, ...]`.
+#[wasm_bindgen]
+pub fn poisson_disk_2d(seed: f64, width: f32, height: f32, min_dist: f32, max_attempts: f64) -> Box<[f32]> {
+    let pts = prime_random::poisson_disk_2d(seed as u32, width, height, min_dist, max_attempts as usize);
+    pts.into_iter().flat_map(|(x, y)| [x, y]).collect::<Vec<f32>>().into_boxed_slice()
+}
+
 // ---------------------------------------------------------------------------
 // prime-osc
 // ---------------------------------------------------------------------------

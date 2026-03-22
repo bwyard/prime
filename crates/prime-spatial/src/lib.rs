@@ -875,4 +875,51 @@ mod tests {
         let planes = unit_cube_frustum();
         assert!(frustum_cull_sphere(&planes, (3.0, 0.0, 0.0), 0.0));
     }
+
+    #[test]
+    fn frustum_cull_sphere_large_sphere_spans_frustum_not_culled() {
+        // Sphere so large it spans the entire frustum — should not be culled.
+        let planes = unit_cube_frustum();
+        assert!(!frustum_cull_sphere(&planes, (0.0, 0.0, 0.0), 100.0));
+    }
+
+    // ── degenerate AABB (min == max, zero-volume point) ───────────────────────
+
+    #[test]
+    fn aabb_overlap_degenerate_touching() {
+        assert!(aabb_overlaps((1.0, 1.0, 1.0), (1.0, 1.0, 1.0), (1.0, 1.0, 1.0), (1.0, 1.0, 1.0)));
+    }
+
+    #[test]
+    fn aabb_overlap_degenerate_apart() {
+        assert!(!aabb_overlaps((0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (1.0, 1.0, 1.0), (1.0, 1.0, 1.0)));
+    }
+
+    #[test]
+    fn aabb_contains_degenerate_on_point() {
+        assert!(aabb_contains((1.0, 1.0, 1.0), (1.0, 1.0, 1.0), (1.0, 1.0, 1.0)));
+        assert!(!aabb_contains((1.0, 1.0, 1.0), (1.0, 1.0, 1.0), (1.0, 1.0, 1.1)));
+    }
+
+    #[test]
+    fn aabb_closest_point_degenerate() {
+        let cp = aabb_closest_point((1.0, 1.0, 1.0), (1.0, 1.0, 1.0), (5.0, 5.0, 5.0));
+        assert!(approx_eq3(cp, (1.0, 1.0, 1.0)));
+    }
+
+    // ── zero-direction ray (one component = 0) ────────────────────────────────
+
+    #[test]
+    fn ray_aabb_zero_x_dir_outside_slab_misses() {
+        // x-component of dir is 0; origin is outside x-slab [0,1] → miss.
+        let t = ray_aabb((5.0, 0.5, -5.0), (0.0, 0.0, 1.0), (0.0, 0.0, 0.0), (1.0, 1.0, 1.0));
+        assert!(t.is_none());
+    }
+
+    #[test]
+    fn ray_aabb_zero_x_dir_inside_slab_hits() {
+        // x-component of dir is 0; origin is inside x-slab → hits via z-travel.
+        let t = ray_aabb((0.5, 0.5, -5.0), (0.0, 0.0, 1.0), (0.0, 0.0, 0.0), (1.0, 1.0, 1.0));
+        assert!(t.is_some());
+    }
 }
