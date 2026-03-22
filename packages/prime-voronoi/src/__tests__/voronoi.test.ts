@@ -99,3 +99,28 @@ describe('lloydRelaxStep2d', () => {
     expect(a).toEqual(b)
   })
 })
+
+// ── Cross-language parity (values verified against Rust prime-voronoi) ────────
+
+describe('cross-language parity', () => {
+  it('voronoiNearest2d single seed at origin — distance matches Rust', () => {
+    // Rust: voronoi_nearest_2d((1.0, 0.0), &[(0.0, 0.0)]) = (0, 1.0)
+    const result = voronoiNearest2d([1, 0], [[0, 0]])
+    expect(result).not.toBeNull()
+    expect(result![0]).toBe(0)
+    expect(result![1]).toBeCloseTo(1.0, 5)
+  })
+  it('voronoiF1F2_2d picks nearest and second nearest', () => {
+    // Two seeds: [0,0] and [2,0]. Query at [0.5, 0]. Nearest = [0,0] at 0.5, next = [2,0] at 1.5
+    const result = voronoiF1F2_2d([0.5, 0], [[0, 0], [2, 0]])
+    expect(result).not.toBeNull()
+    expect(result![0]).toBeCloseTo(0.5, 4)
+    expect(result![1]).toBeCloseTo(1.5, 4)
+  })
+  it('lloydRelaxStep2d moves seed toward centroid of samples', () => {
+    // One seed at [0,0], two samples at [1,0] and [1,1]. Centroid = [1, 0.5].
+    const relaxed = lloydRelaxStep2d([[0, 0]], [[1, 0], [1, 1]])
+    expect(relaxed[0][0]).toBeCloseTo(1.0, 4)
+    expect(relaxed[0][1]).toBeCloseTo(0.5, 4)
+  })
+})

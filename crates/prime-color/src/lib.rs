@@ -339,13 +339,8 @@ pub fn srgb_to_hsl(r: f32, g: f32, b: f32) -> (f32, f32, f32) {
 ///   Standard HSL-to-RGB sector function.
 ///   p, q computed from l and s; k selects the hue sector.
 #[inline]
-fn hsl_component(p: f32, q: f32, mut t: f32) -> f32 {
-    if t < 0.0 {
-        t += 1.0;
-    }
-    if t > 1.0 {
-        t -= 1.0;
-    }
+fn hsl_component(p: f32, q: f32, t: f32) -> f32 {
+    let t = if t < 0.0 { t + 1.0 } else if t > 1.0 { t - 1.0 } else { t };
     if t < 1.0 / 6.0 {
         p + (q - p) * 6.0 * t
     } else if t < 1.0 / 2.0 {

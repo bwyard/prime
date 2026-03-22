@@ -114,3 +114,18 @@ describe('gbmStepSeeded', () => {
     expect(x).toBeGreaterThan(0)
   })
 })
+
+// ── Cross-language parity (values verified against Rust prime-diffusion) ──────
+
+describe('cross-language parity', () => {
+  it('ouStep(0, 0.5, 1.0, 0.1, 0.01, 0) matches Rust = 0.005', () =>
+    expect(ouStep(0, 0.5, 1.0, 0.1, 0.01, 0)).toBeCloseTo(0.005, 5))
+  it('ouStep zero noise with theta=1 drifts toward mu', () => {
+    // x=1, mu=0, theta=1, sigma=0.1, dt=0.1, w=0: x + 1*(0-1)*0.1 = 0.9
+    expect(ouStep(1, 0, 1.0, 0.1, 0.1, 0)).toBeCloseTo(0.9, 5)
+  })
+  it('gbmStep(100, 0.1, 0, 0.01, 0) matches Rust ≈ 100.1', () =>
+    expect(gbmStep(100, 0.1, 0, 0.01, 0)).toBeCloseTo(100.10005, 3))
+  it('gbmStep zero mu and sigma — unchanged', () =>
+    expect(gbmStep(50, 0, 0, 0.01, 0)).toBeCloseTo(50, 5))
+})

@@ -130,3 +130,26 @@ describe('deadzone', () => {
     expect(deadzone(0.55, 0.1, 2)).toBeLessThan(deadzone(0.55, 0.1, 1))
   })
 })
+
+// ── Cross-language parity (values verified against Rust prime-signal) ─────────
+
+describe('cross-language parity', () => {
+  it('lowPass(0, 1, 1, 0.1) matches Rust ≈ 0.09516', () =>
+    expect(lowPass(0, 1, 1, 0.1)).toBeCloseTo(0.09516258, 5))
+  it('deadzone(0.5, 0.3) matches Rust ≈ 0.2857', () =>
+    expect(deadzone(0.5, 0.3)).toBeCloseTo(0.2857142857, 4))
+  it('deadzone(0.0, 0.3) matches Rust = 0.0', () =>
+    expect(deadzone(0.0, 0.3)).toBe(0))
+  it('smoothdamp is deterministic — same inputs each call', () => {
+    const [p1, v1] = smoothdamp(0, 10, 0, 0.3, 0.016)
+    const [p2, v2] = smoothdamp(0, 10, 0, 0.3, 0.016)
+    expect(p1).toBe(p2)
+    expect(v1).toBe(v2)
+  })
+  it('spring is deterministic — same inputs each call', () => {
+    const [p1, v1] = spring(0, 10, 0, 100, 10, 0.016)
+    const [p2, v2] = spring(0, 10, 0, 100, 10, 0.016)
+    expect(p1).toBe(p2)
+    expect(v1).toBe(v2)
+  })
+})

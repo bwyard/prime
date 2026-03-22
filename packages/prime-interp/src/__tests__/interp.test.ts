@@ -94,3 +94,24 @@ describe('easeOutBounce', () => {
       })
   })
 })
+
+// ── Cross-language parity (values verified against Rust prime-interp) ─────────
+
+describe('cross-language parity', () => {
+  it('lerp(0, 10, 0.3) matches Rust = 3.0', () =>
+    expect(lerp(0, 10, 0.3)).toBeCloseTo(3.0, 5))
+  it('invLerp(0, 10, 3) matches Rust = 0.3', () =>
+    expect(invLerp(0, 10, 3)).toBeCloseTo(0.3, 5))
+  it('smoothstep(0, 1, 0.5) matches Rust = 0.5', () =>
+    expect(smoothstep(0, 1, 0.5)).toBeCloseTo(0.5, 5))
+  it('smootherstep(0, 1, 0.5) matches Rust = 0.5', () =>
+    expect(smootherstep(0, 1, 0.5)).toBeCloseTo(0.5, 5))
+  it('easeInQuad(0.5) matches Rust = 0.25', () =>
+    expect(easeInQuad(0.5)).toBeCloseTo(0.25, 5))
+  it('easeOutQuad(0.5) matches Rust = 0.75', () =>
+    expect(easeOutQuad(0.5)).toBeCloseTo(0.75, 5))
+  it('easeInCubic(0.5) matches Rust = 0.125', () =>
+    expect(easeInCubic(0.5)).toBeCloseTo(0.125, 5))
+  it('easeOutCubic(0.5) matches Rust = 0.875', () =>
+    expect(easeOutCubic(0.5)).toBeCloseTo(0.875, 5))
+})
