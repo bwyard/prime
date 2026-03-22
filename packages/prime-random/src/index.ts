@@ -80,7 +80,7 @@ export const prngShuffled = <T>(seed: number, arr: readonly T[]): [T[], number] 
     ([acc, s]: [T[], number], i) => {
       const [j, next] = prngRangeInt(s, i + 1)
       const copy = [...acc] as T[]
-      ;[copy[i], copy[j]] = [copy[j], copy[i]]
+      ;[copy[i], copy[j]] = [copy[j]!, copy[i]!]
       return [copy, next]
     },
     [[...arr] as T[], seed],
@@ -168,7 +168,7 @@ const bridsonTooClose = (
       (_, dx) => Math.max(0, cx - r) + dx,
     ).some(gx => {
       const pt = grid[gy * p.cols + gx]
-      return pt !== null && (x - pt[0]) ** 2 + (y - pt[1]) ** 2 < p.minDist * p.minDist
+      return pt != null && (x - pt[0]) ** 2 + (y - pt[1]) ** 2 < p.minDist * p.minDist
     }),
   )
 }
@@ -177,7 +177,7 @@ const bridsonStep = (state: BridsonState, p: BridsonParams): BridsonState => {
   if (state.active.length === 0) return state
   const [aiF, s1] = prngNext(state.seed)
   const ai = Math.floor(aiF * state.active.length)
-  const [ax, ay] = state.points[state.active[ai]]
+  const [ax, ay] = state.points[state.active[ai]!]!
 
   const [candidate, finalSeed] = Array.from<null>({ length: p.maxAttempts }).reduce(
     ([found, s]: [[number, number] | null, number]): [[number, number] | null, number] => {
