@@ -424,4 +424,78 @@ mod tests {
             assert!((pa.1 - pb.1).abs() < 1e-5);
         });
     }
+
+    // ── prng_shuffled ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn prng_shuffled_preserves_length() {
+        let v = vec![1, 2, 3, 4, 5];
+        let (s, _) = prng_shuffled(0, &v);
+        assert_eq!(s.len(), 5);
+    }
+
+    #[test]
+    fn prng_shuffled_original_unchanged() {
+        let v = vec![1, 2, 3, 4, 5];
+        let _ = prng_shuffled(0, &v);
+        assert_eq!(v, vec![1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn prng_shuffled_contains_same_elements() {
+        let v = vec![10u32, 20, 30, 40, 50];
+        let (s, _) = prng_shuffled(42, &v);
+        let mut sorted_orig = v.clone();
+        let mut sorted_shuffled = s.clone();
+        sorted_orig.sort();
+        sorted_shuffled.sort();
+        assert_eq!(sorted_orig, sorted_shuffled);
+    }
+
+    #[test]
+    fn prng_shuffled_deterministic() {
+        let v = vec![1, 2, 3, 4, 5];
+        let (a, _) = prng_shuffled(7, &v);
+        let (b, _) = prng_shuffled(7, &v);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn prng_shuffled_empty_returns_empty() {
+        let v: Vec<i32> = vec![];
+        let (s, _) = prng_shuffled(0, &v);
+        assert!(s.is_empty());
+    }
+
+    // ── prng_choose ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn prng_choose_returns_element_in_slice() {
+        let v = vec!["a", "b", "c"];
+        let (pick, _) = prng_choose(0, &v);
+        assert!(pick.is_some());
+        assert!(v.contains(pick.unwrap()));
+    }
+
+    #[test]
+    fn prng_choose_empty_returns_none() {
+        let v: Vec<i32> = vec![];
+        let (pick, _) = prng_choose(0, &v);
+        assert!(pick.is_none());
+    }
+
+    #[test]
+    fn prng_choose_deterministic() {
+        let v = vec![10, 20, 30, 40];
+        let (a, _) = prng_choose(99, &v);
+        let (b, _) = prng_choose(99, &v);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn prng_choose_single_element_always_returns_it() {
+        let v = vec![42];
+        let (pick, _) = prng_choose(0, &v);
+        assert_eq!(*pick.unwrap(), 42);
+    }
 }

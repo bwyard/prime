@@ -156,3 +156,28 @@ describe('adsrStep', () => {
     expect(s1).toEqual(s2)
   })
 })
+
+// ── Cross-language parity (values verified against Rust prime-osc) ────────────
+
+describe('cross-language parity', () => {
+  it('lfoSine(0.0) matches Rust = 0.0', () =>
+    expect(lfoSine(0.0)).toBeCloseTo(0.0, 5))
+  it('lfoSine(0.25) matches Rust = 1.0', () =>
+    expect(lfoSine(0.25)).toBeCloseTo(1.0, 5))
+  it('lfoSine(0.5) matches Rust ≈ 0.0', () =>
+    expect(Math.abs(lfoSine(0.5))).toBeLessThan(1e-10))
+  it('lfoTriangle(0.0) matches Rust = 0.0', () =>
+    expect(lfoTriangle(0.0)).toBeCloseTo(0.0, 5))
+  it('lfoTriangle(0.25) matches Rust = 1.0', () =>
+    expect(lfoTriangle(0.25)).toBeCloseTo(1.0, 5))
+  it('lfoTriangle(0.5) matches Rust = 0.0', () =>
+    expect(lfoTriangle(0.5)).toBeCloseTo(0.0, 5))
+  it('lfoSawtooth(0.0) matches Rust = -1.0', () =>
+    expect(lfoSawtooth(0.0)).toBeCloseTo(-1.0, 5))
+  it('lfoSawtooth(0.5) matches Rust = 0.0', () =>
+    expect(lfoSawtooth(0.5)).toBeCloseTo(0.0, 5))
+  it('lfoSquare(0.25) matches Rust = 1.0', () =>
+    expect(lfoSquare(0.25)).toBe(1))
+  it('lfoSquare(0.75) matches Rust = -1.0', () =>
+    expect(lfoSquare(0.75)).toBe(-1))
+})

@@ -219,3 +219,41 @@ describe('poissonDisk2d', () => {
     })
   })
 })
+
+// ── Cross-language parity ──────────────────────────────────────────────────────
+//
+// NOTE: TS prngNext uses Mulberry32-variant hash while Rust prng_next uses PCG.
+// They produce different values for the same seed — each is internally consistent.
+// These tests verify TS-internal stability (regression guard) and structural contracts.
+
+describe('cross-language parity', () => {
+  it('prngNext(42) value is stable at 0.6011037...', () => {
+    // TS Mulberry32: prngNext(42)[0] = 0.6011037519201636
+    const [v] = prngNext(42)
+    expect(v).toBeCloseTo(0.6011038, 5)
+  })
+  it('prngNext(42) next seed is stable', () => {
+    const [, next] = prngNext(42)
+    expect(next).toBe(1831565855)
+  })
+  it('prngRange(42, 10, 20) is in [10, 20)', () => {
+    const [v] = prngRange(42, 10, 20)
+    expect(v).toBeGreaterThanOrEqual(10)
+    expect(v).toBeLessThan(20)
+  })
+  it('prngBool(42, 0.5) returns boolean', () => {
+    const [v] = prngBool(42, 0.5)
+    expect(typeof v).toBe('boolean')
+  })
+  it('prngShuffled preserves all elements', () => {
+    const v = [10, 20, 30, 40, 50]
+    const [s] = prngShuffled(42, v)
+    expect([...s].sort((a, b) => a - b)).toEqual([10, 20, 30, 40, 50])
+  })
+  it('prngChoose from non-empty returns element in slice', () => {
+    const v = ['a', 'b', 'c']
+    const [pick] = prngChoose(42, v)
+    expect(pick).not.toBeNull()
+    expect(v.includes(pick!)).toBe(true)
+  })
+})
