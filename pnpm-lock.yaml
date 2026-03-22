@@ -24,6 +24,24 @@ importers:
         specifier: ^1.6.0
         version: 1.6.1
 
+  packages/prime-diffusion:
+    devDependencies:
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+      vitest:
+        specifier: ^1.6.0
+        version: 1.6.1
+
+  packages/prime-dynamics:
+    devDependencies:
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+      vitest:
+        specifier: ^1.6.0
+        version: 1.6.1
+
   packages/prime-interp:
     devDependencies:
       typescript:
