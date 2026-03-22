@@ -1,6 +1,6 @@
 [package]
 name        = "prime-render"
-description = "Pure sample-level scan loop — the ADVANCE evaluator for Score's temporal assembly thesis"
+description = "Pure sample-level scan loop — fold a pure step function over N audio samples"
 version.workspace    = true
 edition.workspace    = true
 license.workspace    = true

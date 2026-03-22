@@ -28,3 +28,11 @@ version    = "0.1.0"
 edition    = "2021"
 license    = "MIT"
 repository = "https://github.com/bwyard/prime"
+
+# No unsafe code, no &mut in public API — pure functions throughout.
+# CI runs: cargo clippy --workspace -- -D warnings (all lints are errors)
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+needless_pass_by_ref_mut = "warn"  # catches &mut params that don't need mutation

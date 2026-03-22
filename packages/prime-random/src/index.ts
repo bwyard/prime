@@ -3,9 +3,9 @@
  *
  * All public functions are LOAD + COMPUTE. No STORE. No JUMP. No exceptions.
  *
- * Thesis: the seed IS the thread. Who holds the seed controls who can
- * advance it. Consent revocation = stop threading the seed forward.
- * No DELETE needed — the sequence is causally inert without its key.
+ * The seed IS the thread position. Who holds the seed controls who can
+ * advance it. Stop threading the seed forward to end the sequence —
+ * no DELETE needed, the sequence is causally inert without its key.
  */
 
 // ── Pure PRNG primitives ────────────────────────────────────────────────────
