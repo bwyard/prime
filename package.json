@@ -7,10 +7,14 @@
     "build": "pnpm -r run build",
     "test": "pnpm -r run test",
     "typecheck": "pnpm -r run typecheck",
-    "thesis-check": "node scripts/thesis-check.js"
+    "thesis-check": "node scripts/thesis-check.js",
+    "lint": "eslint ."
   },
   "devDependencies": {
     "typescript": "^5.4.0",
-    "vitest": "^1.6.0"
+    "vitest": "^1.6.0",
+    "eslint": "^9.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "@thesis/eslint-config": "file:../claude-resources/tools/eslint-config-thesis"
   }
 }

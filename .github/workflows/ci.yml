@@ -55,8 +55,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      - name: Thesis check
-        run: node scripts/thesis-check.js
+      - name: Thesis check (ESLint)
+        run: pnpm lint
 
       - name: Typecheck
         run: pnpm -r run typecheck
