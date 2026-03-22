@@ -181,10 +181,28 @@ Values from Rust implementation are the reference. If Rust changes, update TS te
 
 - No serde on any crate until API is stable
 - No async/tokio — all math is synchronous pure functions
-- No wasm-pack yet — native Rust only until core is stable
-- No publishing to crates.io or npm yet
+- No publishing to crates.io or npm yet — **all packages publish together as a batch, never individually**
 - No stage-nav before prime-sdf and prime-spatial are complete
 - No web server, HTTP, or networking in any crate
+
+## Consumer dependency strategy (pre-publish)
+
+Until the batch publish happens, other repos (SCORE, FORM, STAGE, idle-hero) consume prime via
+**GitHub path dependencies** pointing directly at this repo. Do not wire consumers via npm.
+
+**Rust crates** — use git dependency in consumer Cargo.toml:
+```toml
+prime-random = { git = "https://github.com/bwyard/prime", branch = "dev" }
+```
+
+**TypeScript packages** — use GitHub URL dependency:
+```json
+"@prime/prime-random": "github:bwyard/prime#dev"
+```
+This tells pnpm/npm to pull directly from the prime repo's `dev` branch.
+No npm account, no publish step, no version bumping — just point at the repo.
+
+When all packages are stable and API-frozen, publish the whole batch to npm/crates.io at once.
 
 ---
 

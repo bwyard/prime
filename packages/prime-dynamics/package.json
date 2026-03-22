@@ -1,7 +1,7 @@
 {
-  "name": "@prime/prime-splines",
+  "name": "@prime/prime-dynamics",
   "version": "0.1.0",
-  "description": "Spline math (pure TypeScript)",
+  "description": "Dynamical systems and numerical integration — RK4, Euler, Lorenz, Rössler, Duffing",
   "license": "MIT",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
