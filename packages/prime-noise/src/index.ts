@@ -5,9 +5,8 @@
  * no hidden state. Same inputs always produce the same output.
  *
  * @remarks
- * Implements the temporal assembly thesis: LOAD (read parameters) + COMPUTE (pure math).
- * STORE and JUMP do not exist here. TypeScript port mirrors `prime-noise` Rust crate exactly
- * for cross-language determinism.
+ * All functions are LOAD + COMPUTE only — no mutation, no side effects, no hidden state.
+ * TypeScript port mirrors `prime-noise` Rust crate exactly for cross-language determinism.
  *
  * @module prime-noise
  */

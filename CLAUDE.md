@@ -66,73 +66,66 @@ prime/
 
 ---
 
-## Temporal Assembly Model — MANDATORY
+## Code conventions — MANDATORY
 
-PRIME implements the temporal assembly thesis in code. Every public function is LOAD + COMPUTE only.
+Every public function is pure: LOAD inputs, COMPUTE a result, return new state. No mutation, no side effects.
 
 ```
-Temporal assembly:       What it means in PRIME:
+Pattern:                 What it means in PRIME:
 LOAD    ← read input     function parameters
 COMPUTE ← pure math      function body
 APPEND  ← write new fact return new state as tuple
 ADVANCE ← move forward   reduce/fold over time steps
 ```
 
-**STORE and JUMP do not exist in PRIME.** They are poverty-era compromises.
-STORE was invented because RAM was scarce in 1945. JUMP because mutating the instruction pointer
-was cheaper than logging. Neither constraint applies here.
-
 ### Rules
 
-1. **No STORE — no `&mut` in public function signatures.** Functions take values in, return values out.
-   - STORE (wrong): `pub fn smoothdamp(velocity: &mut f32) -> f32`
-   - APPEND (right): `pub fn smoothdamp(velocity: f32) -> (f32, f32)` — new state returned, old untouched
+1. **No `&mut` in public function signatures.** Functions take values in, return values out.
+   - Wrong: `pub fn smoothdamp(velocity: &mut f32) -> f32`
+   - Right: `pub fn smoothdamp(velocity: f32) -> (f32, f32)` — new state returned, old untouched
 
-2. **No STORE — no mutation of external state.** Never write to caller-owned memory.
+2. **No mutation of external state.** Never write to caller-owned memory.
 
 3. **Deterministic.** Same inputs always produce the same output. No hidden state.
 
 4. **No side effects.** No printing, no I/O, no global state, no clocks.
 
-5. **No exceptions.** prime-random has no STORE, no JUMP, no classes.
+5. **prime-random: no classes, no mutable write head.**
    The seed IS the RNG. `prngNext(seed) → [value, nextSeed]` threads state forward.
-   No class, no write head, no mutation anywhere.
+   No class, no mutation anywhere.
 
 6. **TypeScript: no `let` — use `const` only.** Production code AND tests.
-   - ADVANCE pattern: `Array.from({ length: N }).reduce((state) => step(state, dt), init)`
-   - `reduce` is ADVANCE — it moves the state forward through time steps without a mutable pointer.
+   - Fold pattern: `Array.from({ length: N }).reduce((state) => step(state, dt), init)`
    - Tuple destructuring `const [a, b] = fn()` threads state explicitly between steps.
    - Exceptions: `while` loops in Bridson-class algorithms (stack overflow risk) — mark with `// ADVANCE-EXCEPTION`.
 
-### Flag these patterns — they are STORE or JUMP violations
+### Flag these patterns
 
 ```rust
-// ❌ STORE — mutates caller's state
+// ❌ wrong — mutates caller's state
 pub fn smoothdamp(vel: &mut f32) -> f32 { ... }
 
-// ❌ STORE — mutates slice in place
+// ❌ wrong — mutates slice in place
 pub fn shuffle(slice: &mut [T]) { ... }
 
-// ✅ APPEND — returns new state as tuple
+// ✅ right — returns new state as tuple
 pub fn smoothdamp(vel: f32) -> (f32, f32) { ... }
 
-// ✅ APPEND — returns new collection
+// ✅ right — returns new collection
 pub fn shuffled<T: Clone>(slice: &[T]) -> Vec<T> { ... }
 ```
 
 ```typescript
-// ❌ STORE + JUMP
+// ❌ wrong — mutable pointer
 let [pos, vel] = [0, 0]
 for (let i = 0; i < 200; i++) [pos, vel] = smoothdamp(pos, 10, vel, 0.3, 0.016)
 
-// ✅ APPEND + ADVANCE
+// ✅ right — fold
 const [pos] = Array.from({ length: 200 }).reduce(
   ([p, v]: [number, number]) => smoothdamp(p, 10, v, 0.3, 0.016),
   [0, 0] as [number, number],
 )
 ```
-
-When reviewing code, call out any STORE or JUMP as a violation of the temporal assembly model.
 
 ---
 

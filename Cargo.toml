@@ -29,7 +29,7 @@ edition    = "2021"
 license    = "MIT"
 repository = "https://github.com/bwyard/prime"
 
-# Thesis enforcement — no STORE (&mut in pub API), no unsafe code.
+# No unsafe code, no &mut in public API — pure functions throughout.
 # CI runs: cargo clippy --workspace -- -D warnings (all lints are errors)
 [workspace.lints.rust]
 unsafe_code = "deny"

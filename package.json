@@ -7,7 +7,6 @@
     "build": "pnpm -r run build",
     "test": "pnpm -r run test",
     "typecheck": "pnpm -r run typecheck",
-    "thesis-check": "node scripts/thesis-check.js",
     "lint": "eslint ."
   },
   "devDependencies": {

@@ -2,8 +2,7 @@
 // DO NOT EDIT directly. Edit source: claude-resources/tools/eslint-config-thesis/index.js
 // Re-sync: node claude-resources/tools/sync-thesis-eslint.js (from development/)
 //
-// Thesis: "A value is a fact, not a place."
-// Rules: no let (STORE), no classes (STORE + OOP mutation model)
+// Rules: const-only (no var/let), no classes — pure functions + readonly types.
 import tsParser from '@typescript-eslint/parser'
 
 export default [
@@ -24,11 +23,11 @@ export default [
         'error',
         {
           selector: 'ClassDeclaration',
-          message: 'Thesis violation [STORE]: use pure functions + readonly types, not classes.',
+          message: 'Use pure functions and readonly types instead of classes.',
         },
         {
           selector: 'ClassExpression',
-          message: 'Thesis violation [STORE]: use pure functions + readonly types, not classes.',
+          message: 'Use pure functions and readonly types instead of classes.',
         },
       ],
     },

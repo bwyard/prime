@@ -1,15 +1,14 @@
 /**
  * prime-render — Pure sample-level scan loop.
  *
- * This is the ADVANCE evaluator for the temporal assembly thesis. A rendered
- * buffer is the result of folding a pure step function over time:
+ * A rendered buffer is the result of folding a pure step function over time:
  *
  *   output[n] = f(state_n, t_n)   where   state_{n+1} = step(state_n, t_n).sampleRate
  *
  * `render` is the only place in PRIME where ADVANCE is the *explicit* design.
  * Everything else in PRIME is LOAD + COMPUTE (single-step). Here we fold N steps.
  *
- * Temporal assembly:
+ * Pattern:
  *   LOAD    ← initialState, sampleRate, numSamples, step fn
  *   COMPUTE ← fold: (state, n) → (sample, nextState)
  *   APPEND  ← collect each sample into output
