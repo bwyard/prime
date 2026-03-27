@@ -238,10 +238,72 @@ pub fn prng_bool(seed: f64, p: f32) -> Box<[f64]> {
     vec![if v { 1.0 } else { 0.0 }, next as f64].into_boxed_slice()
 }
 
+/// Advance PRNG with external entropy mixed in. Returns `[value, next_seed]`.
+#[wasm_bindgen]
+pub fn prng_next_with_entropy(seed: f64, entropy: f64) -> Box<[f64]> {
+    let (v, next) = prime_random::prng_next_with_entropy(seed as u32, entropy as u32);
+    vec![v as f64, next as f64].into_boxed_slice()
+}
+
+/// Box-Muller Gaussian sample N(0,1). Returns `[value, next_seed]`.
+#[wasm_bindgen]
+pub fn prng_gaussian(seed: f64) -> Box<[f64]> {
+    let (v, next) = prime_random::prng_gaussian(seed as u32);
+    vec![v as f64, next as f64].into_boxed_slice()
+}
+
+/// Box-Muller Gaussian pair. Returns `[z0, z1, next_seed]`.
+#[wasm_bindgen]
+pub fn prng_gaussian_pair(seed: f64) -> Box<[f64]> {
+    let (z0, z1, next) = prime_random::prng_gaussian_pair(seed as u32);
+    vec![z0 as f64, z1 as f64, next as f64].into_boxed_slice()
+}
+
+/// Exponential distribution sample. Returns `[value, next_seed]`.
+#[wasm_bindgen]
+pub fn prng_exponential(seed: f64, lambda: f32) -> Box<[f64]> {
+    let (v, next) = prime_random::prng_exponential(seed as u32, lambda);
+    vec![v as f64, next as f64].into_boxed_slice()
+}
+
+/// Uniform random point in disk. Returns `[x, y, next_seed]`.
+#[wasm_bindgen]
+pub fn prng_disk_uniform(seed: f64, radius: f32) -> Box<[f64]> {
+    let (x, y, next) = prime_random::prng_disk_uniform(seed as u32, radius);
+    vec![x as f64, y as f64, next as f64].into_boxed_slice()
+}
+
+/// Uniform random point in annulus. Returns `[x, y, next_seed]`.
+#[wasm_bindgen]
+pub fn prng_annulus_uniform(seed: f64, r_inner: f32, r_outer: f32) -> Box<[f64]> {
+    let (x, y, next) = prime_random::prng_annulus_uniform(seed as u32, r_inner, r_outer);
+    vec![x as f64, y as f64, next as f64].into_boxed_slice()
+}
+
+/// Van der Corput sequence value at index n in given base.
+#[wasm_bindgen]
+pub fn van_der_corput(n: u32, base: u32) -> f32 {
+    prime_random::van_der_corput(n, base)
+}
+
+/// 2D Halton sequence (bases 2, 3). Returns `[x, y]`.
+#[wasm_bindgen]
+pub fn halton_2d(n: u32) -> Box<[f32]> {
+    let (x, y) = prime_random::halton_2d(n);
+    vec![x, y].into_boxed_slice()
+}
+
+/// 3D Halton sequence (bases 2, 3, 5). Returns `[x, y, z]`.
+#[wasm_bindgen]
+pub fn halton_3d(n: u32) -> Box<[f32]> {
+    let (x, y, z) = prime_random::halton_3d(n);
+    vec![x, y, z].into_boxed_slice()
+}
+
 /// Poisson-disk 2D sampling. Returns flat `[x0, y0, x1, y1, ...]`.
 #[wasm_bindgen]
 pub fn poisson_disk_2d(seed: f64, width: f32, height: f32, min_dist: f32, max_attempts: f64) -> Box<[f32]> {
-    let pts = prime_random::poisson_disk_2d(seed as u32, width, height, min_dist, max_attempts as usize);
+    let (pts, _) = prime_random::poisson_disk_2d(seed as u32, width, height, min_dist, max_attempts as usize);
     pts.into_iter().flat_map(|(x, y)| [x, y]).collect::<Vec<f32>>().into_boxed_slice()
 }
 

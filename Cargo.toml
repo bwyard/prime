@@ -19,9 +19,10 @@ members = [
 resolver = "2"
 
 [workspace.dependencies]
-glam     = "0.27"
-rand     = { version = "0.8", features = ["small_rng"] }
-rand_pcg = "0.3"
+glam      = "0.27"
+rand      = { version = "0.8", features = ["small_rng"] }
+rand_pcg  = "0.3"
+criterion = { version = "0.5", features = ["html_reports"] }
 
 [workspace.package]
 version    = "0.1.0"

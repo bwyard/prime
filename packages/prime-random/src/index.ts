@@ -98,6 +98,27 @@ export const prngChoose = <T>(seed: number, arr: readonly T[]): [T | undefined, 
   return [arr[i], next]
 }
 
+// ── Entropy escape hatch ────────────────────────────────────────────────────
+
+/**
+ * Advance PRNG with external entropy mixed into the next seed.
+ *
+ * @remarks
+ * Useful for injecting player input or network jitter into a deterministic
+ * stream without breaking the pure-function contract.
+ *
+ * @param seed - Current thread position
+ * @param entropy - External entropy value (XOR'd into next seed)
+ * @returns [value in [0,1), nextSeed XOR'd with entropy]
+ *
+ * @example
+ * const [v, s1] = prngNextWithEntropy(42, 0xDEADBEEF)
+ */
+export const prngNextWithEntropy = (seed: number, entropy: number): [number, number] => {
+  const [value, next] = prngNext(seed)
+  return [value, (next ^ entropy) >>> 0]
+}
+
 // ── Pure higher-order functions ─────────────────────────────────────────────
 
 /**
@@ -129,6 +150,283 @@ export const weightedChoice = (seed: number, weights: readonly number[]): [numbe
     { remaining: u, idx: -1 },
   )
   return [idx !== -1 ? idx : weights.length - 1, s1]
+}
+
+// ── Probability distributions ───────────────────────────────────────────────
+
+/**
+ * Box-Muller transform — single Gaussian sample from N(0, 1).
+ *
+ * # Math
+ *   z = sqrt(-2 * ln(u1)) * cos(2 * pi * u2)
+ *
+ * @param seed - Thread position
+ * @returns [gaussian value, nextSeed]
+ *
+ * @example
+ * const [g, s1] = prngGaussian(42)
+ */
+export const prngGaussian = (seed: number): [number, number] => {
+  const [u1, s1] = prngNext(seed)
+  const [u2, s2] = prngNext(s1)
+  const u1Safe = u1 < 1e-10 ? 1e-10 : u1
+  return [Math.sqrt(-2 * Math.log(u1Safe)) * Math.cos(2 * Math.PI * u2), s2]
+}
+
+/**
+ * Box-Muller transform — both Gaussian values from the pair.
+ *
+ * # Math
+ *   z0 = r * cos(theta), z1 = r * sin(theta)
+ *   where r = sqrt(-2 * ln(u1)), theta = 2 * pi * u2
+ *
+ * @param seed - Thread position
+ * @returns [z0, z1, nextSeed]
+ *
+ * @example
+ * const [g0, g1, s1] = prngGaussianPair(42)
+ */
+export const prngGaussianPair = (seed: number): [number, number, number] => {
+  const [u1, s1] = prngNext(seed)
+  const [u2, s2] = prngNext(s1)
+  const u1Safe = u1 < 1e-10 ? 1e-10 : u1
+  const r = Math.sqrt(-2 * Math.log(u1Safe))
+  const theta = 2 * Math.PI * u2
+  return [r * Math.cos(theta), r * Math.sin(theta), s2]
+}
+
+/**
+ * Exponential distribution sample via inverse CDF.
+ *
+ * # Math
+ *   x = -ln(1 - u) / lambda
+ *
+ * @param seed - Thread position
+ * @param lambda - Rate parameter (must be > 0)
+ * @returns [exponential value, nextSeed]
+ *
+ * @example
+ * const [e, s1] = prngExponential(42, 1.0)
+ */
+export const prngExponential = (seed: number, lambda: number): [number, number] => {
+  const [u, next] = prngNext(seed)
+  return [-Math.log(1 - u) / lambda, next]
+}
+
+/**
+ * Uniform random point inside a disk of given radius.
+ *
+ * # Math
+ *   angle = 2 * pi * u1
+ *   dist = radius * sqrt(u2)   (sqrt for uniform area distribution)
+ *
+ * @param seed - Thread position
+ * @param radius - Disk radius
+ * @returns [x, y, nextSeed]
+ *
+ * @example
+ * const [x, y, s1] = prngDiskUniform(42, 5.0)
+ */
+export const prngDiskUniform = (seed: number, radius: number): [number, number, number] => {
+  const [u1, s1] = prngNext(seed)
+  const [u2, s2] = prngNext(s1)
+  const angle = 2 * Math.PI * u1
+  const dist = radius * Math.sqrt(u2)
+  return [dist * Math.cos(angle), dist * Math.sin(angle), s2]
+}
+
+/**
+ * Uniform random point inside an annulus (ring) between rInner and rOuter.
+ *
+ * # Math
+ *   angle = 2 * pi * u1
+ *   dist = sqrt(rInner^2 + u2 * (rOuter^2 - rInner^2))
+ *
+ * @param seed - Thread position
+ * @param rInner - Inner radius
+ * @param rOuter - Outer radius
+ * @returns [x, y, nextSeed]
+ *
+ * @example
+ * const [x, y, s1] = prngAnnulusUniform(42, 3.0, 6.0)
+ */
+export const prngAnnulusUniform = (seed: number, rInner: number, rOuter: number): [number, number, number] => {
+  const [u1, s1] = prngNext(seed)
+  const [u2, s2] = prngNext(s1)
+  const angle = 2 * Math.PI * u1
+  const dist = Math.sqrt(rInner * rInner + u2 * (rOuter * rOuter - rInner * rInner))
+  return [dist * Math.cos(angle), dist * Math.sin(angle), s2]
+}
+
+// ── Quasi-random sequences ──────────────────────────────────────────────────
+
+/**
+ * Van der Corput sequence — low-discrepancy 1D sequence.
+ *
+ * # Math
+ *   Reflects the base-b digits of n about the decimal point.
+ *
+ * @param n - Sequence index (non-negative integer)
+ * @param base - Number base (typically prime: 2, 3, 5, ...)
+ * @returns Value in [0, 1)
+ *
+ * @example
+ * const v = vanDerCorput(1, 2) // 0.5
+ * const w = vanDerCorput(2, 2) // 0.25
+ */
+export const vanDerCorput = (n: number, base: number): number => {
+  let result = 0
+  let denom = 1
+  let num = n
+  // ADVANCE-EXCEPTION: digit extraction loop with bounded iteration
+  while (num > 0) {
+    denom *= base
+    result += (num % base) / denom
+    num = Math.floor(num / base)
+  }
+  return result
+}
+
+/**
+ * Halton sequence in 2D (bases 2 and 3).
+ *
+ * @param n - Sequence index
+ * @returns [x, y] in [0, 1)^2
+ *
+ * @example
+ * const [x, y] = halton2d(1) // [0.5, 0.333...]
+ */
+export const halton2d = (n: number): [number, number] =>
+  [vanDerCorput(n, 2), vanDerCorput(n, 3)]
+
+/**
+ * Halton sequence in 3D (bases 2, 3, and 5).
+ *
+ * @param n - Sequence index
+ * @returns [x, y, z] in [0, 1)^3
+ *
+ * @example
+ * const [x, y, z] = halton3d(1) // [0.5, 0.333..., 0.2]
+ */
+export const halton3d = (n: number): [number, number, number] =>
+  [vanDerCorput(n, 2), vanDerCorput(n, 3), vanDerCorput(n, 5)]
+
+// ── Monte Carlo integration ─────────────────────────────────────────────────
+
+/**
+ * Monte Carlo integration of f over [a, b].
+ *
+ * # Math
+ *   integral ≈ (b - a) * (1/n) * sum(f(x_i))
+ *   where x_i ~ Uniform(a, b)
+ *
+ * @param seed - Thread position
+ * @param f - Function to integrate
+ * @param a - Lower bound
+ * @param b - Upper bound
+ * @param n - Number of samples
+ * @returns [estimate, nextSeed]
+ *
+ * @example
+ * const [integral, s1] = monteCarlo1d(42, Math.sin, 0, Math.PI, 10000)
+ */
+export const monteCarlo1d = (
+  seed: number,
+  f: (x: number) => number,
+  a: number,
+  b: number,
+  n: number,
+): [number, number] => {
+  const width = b - a
+  const [sum, finalSeed] = Array.from<null>({ length: n }).reduce(
+    ([acc, s]: [number, number]): [number, number] => {
+      const [u, next] = prngNext(s)
+      return [acc + f(a + u * width), next]
+    },
+    [0, seed] as [number, number],
+  )
+  return [(width * sum) / n, finalSeed]
+}
+
+/**
+ * Monte Carlo integration of f over [x0, x1] x [y0, y1].
+ *
+ * # Math
+ *   integral ≈ area * (1/n) * sum(f(x_i, y_i))
+ *   where (x_i, y_i) ~ Uniform([x0,x1] x [y0,y1])
+ *
+ * @param seed - Thread position
+ * @param f - Function to integrate
+ * @param x0 - Lower x bound
+ * @param x1 - Upper x bound
+ * @param y0 - Lower y bound
+ * @param y1 - Upper y bound
+ * @param n - Number of samples
+ * @returns [estimate, nextSeed]
+ *
+ * @example
+ * const [integral, s1] = monteCarlo2d(42, (x, y) => x * y, 0, 1, 0, 1, 10000)
+ */
+export const monteCarlo2d = (
+  seed: number,
+  f: (x: number, y: number) => number,
+  x0: number,
+  x1: number,
+  y0: number,
+  y1: number,
+  n: number,
+): [number, number] => {
+  const area = (x1 - x0) * (y1 - y0)
+  const [sum, finalSeed] = Array.from<null>({ length: n }).reduce(
+    ([acc, s]: [number, number]): [number, number] => {
+      const [ux, s1] = prngNext(s)
+      const [uy, s2] = prngNext(s1)
+      return [acc + f(x0 + ux * (x1 - x0), y0 + uy * (y1 - y0)), s2]
+    },
+    [0, seed] as [number, number],
+  )
+  return [(area * sum) / n, finalSeed]
+}
+
+/**
+ * Monte Carlo integration with variance estimate (Welford's online algorithm).
+ *
+ * # Math
+ *   integral ≈ (b - a) * mean(f(x_i))
+ *   variance via Welford's online algorithm for numerical stability
+ *
+ * @param seed - Thread position
+ * @param f - Function to integrate
+ * @param a - Lower bound
+ * @param b - Upper bound
+ * @param n - Number of samples
+ * @returns [estimate, variance, nextSeed]
+ *
+ * @example
+ * const [integral, variance, s1] = monteCarlo1dWithVariance(42, Math.sin, 0, Math.PI, 10000)
+ */
+export const monteCarlo1dWithVariance = (
+  seed: number,
+  f: (x: number) => number,
+  a: number,
+  b: number,
+  n: number,
+): [number, number, number] => {
+  const width = b - a
+  // Welford's online algorithm
+  const [mean, m2, , finalSeed] = Array.from<null>({ length: n }).reduce(
+    ([prevMean, prevM2, count, s]: [number, number, number, number]): [number, number, number, number] => {
+      const [u, next] = prngNext(s)
+      const sample = f(a + u * width)
+      const newCount = count + 1
+      const delta = sample - prevMean
+      const newMean = prevMean + delta / newCount
+      const delta2 = sample - newMean
+      return [newMean, prevM2 + delta * delta2, newCount, next]
+    },
+    [0, 0, 0, seed] as [number, number, number, number],
+  )
+  return [mean * width, n > 1 ? (m2 / (n - 1)) * width * width : 0, finalSeed]
 }
 
 // ── Pure Bridson ────────────────────────────────────────────────────────────
@@ -185,7 +483,8 @@ const bridsonStep = (state: BridsonState, p: BridsonParams): BridsonState => {
       const [anglef, s2] = prngNext(s)
       const [distf, s3] = prngNext(s2)
       const angle = anglef * Math.PI * 2
-      const dist = p.minDist + distf * p.minDist
+      const r2 = p.minDist * p.minDist
+      const dist = Math.sqrt(r2 + distf * 3.0 * r2)
       const cx = ax + Math.cos(angle) * dist
       const cy = ay + Math.sin(angle) * dist
       return cx >= 0 && cx < p.width && cy >= 0 && cy < p.height && !bridsonTooClose(cx, cy, state.grid, p)
@@ -228,10 +527,10 @@ const bridsonStep = (state: BridsonState, p: BridsonParams): BridsonState => {
  * @param height - Sampling domain height
  * @param minDist - Minimum distance between any two points
  * @param maxAttempts - Candidates per active point (30 is standard)
- * @returns Array of [x, y] tuples
+ * @returns [points, nextSeed] — array of [x, y] tuples and the final seed
  *
  * @example
- * const pts = poissonDisk2d(42, 100, 100, 10)
+ * const [pts, s1] = poissonDisk2d(42, 100, 100, 10)
  */
 export const poissonDisk2d = (
   seed: number,
@@ -239,7 +538,7 @@ export const poissonDisk2d = (
   height: number,
   minDist: number,
   maxAttempts = 30,
-): [number, number][] => {
+): [[number, number][], number] => {
   const cellSize = minDist / Math.SQRT2
   const cols = Math.ceil(width / cellSize) + 1
   const rows = Math.ceil(height / cellSize) + 1
@@ -260,14 +559,11 @@ export const poissonDisk2d = (
     seed: s2,
   }
 
-  // Upper bound on steps: each point is added once and removed from active once.
-  const maxPoints = Math.ceil((width * height) / (Math.PI * (minDist / 2) ** 2)) * 4
-  const maxSteps = maxPoints * 2
+  // ADVANCE-EXCEPTION: Bridson active-list termination is data-dependent
+  let state: BridsonState = initial
+  while (state.active.length > 0) {
+    state = bridsonStep(state, p)
+  }
 
-  const final = Array.from<null>({ length: maxSteps }).reduce(
-    (state: BridsonState) => (state.active.length === 0 ? state : bridsonStep(state, p)),
-    initial,
-  )
-
-  return [...final.points]
+  return [[...state.points], state.seed]
 }
