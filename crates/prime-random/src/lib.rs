@@ -1062,4 +1062,164 @@ mod tests {
             assert_eq!(history[i].parent_seed, history[i - 1].next_seed);
         });
     }
+
+    // ── Statistical validation tests ────────────────────────────────────────
+
+    #[test]
+    fn prng_next_chi_square_uniform() {
+        // Divide [0,1) into 10 bins. 10K samples should distribute ~1000 per bin.
+        let n = 10000usize;
+        let bins = 10usize;
+        let counts = (0..n).fold(([0usize; 10], 1u32), |(mut acc, s), _| {
+            let (v, next) = prng_next(s);
+            let bin = (v * bins as f32).min((bins - 1) as f32) as usize;
+            acc[bin] += 1;
+            (acc, next)
+        }).0;
+        let expected = n as f32 / bins as f32;
+        let chi_sq: f32 = counts.iter()
+            .map(|&c| (c as f32 - expected).powi(2) / expected)
+            .sum();
+        // Chi-square with 9 dof: critical value at p=0.01 is 21.67
+        assert!(chi_sq < 21.67, "chi_sq={chi_sq} — PRNG fails uniformity test");
+    }
+
+    #[test]
+    fn prng_next_ks_uniform() {
+        // Max deviation from CDF of uniform should be small
+        let n = 1000usize;
+        let mut samples: Vec<f32> = (0..n).fold((vec![], 42u32), |(mut v, s), _| {
+            let (val, next) = prng_next(s);
+            v.push(val);
+            (v, next)
+        }).0;
+        samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let max_dev = samples.iter().enumerate()
+            .map(|(i, &v)| {
+                let empirical = (i + 1) as f32 / n as f32;
+                (v - empirical).abs()
+            })
+            .fold(0.0_f32, f32::max);
+        // KS critical value at p=0.01 for n=1000: ~0.0408
+        assert!(max_dev < 0.05, "KS max deviation={max_dev} — PRNG fails uniformity");
+    }
+
+    #[test]
+    fn gaussian_jarque_bera_normality() {
+        let n = 10000usize;
+        let (sum, sum2, sum3, sum4, _) = (0..n).fold(
+            (0.0_f64, 0.0_f64, 0.0_f64, 0.0_f64, 1u32),
+            |(s1, s2, s3, s4, seed), _| {
+                let (g, next) = prng_gaussian(seed);
+                let g = g as f64;
+                (s1 + g, s2 + g * g, s3 + g * g * g, s4 + g * g * g * g, next)
+            },
+        );
+        let mean = sum / n as f64;
+        let m2 = sum2 / n as f64 - mean * mean;
+        let m3 = sum3 / n as f64 - 3.0 * mean * sum2 / n as f64 + 2.0 * mean.powi(3);
+        let m4 = sum4 / n as f64 - 4.0 * mean * sum3 / n as f64 + 6.0 * mean.powi(2) * sum2 / n as f64 - 3.0 * mean.powi(4);
+        let skewness = m3 / m2.powf(1.5);
+        let kurtosis = m4 / (m2 * m2) - 3.0; // excess kurtosis
+        let jb = (n as f64 / 6.0) * (skewness.powi(2) + kurtosis.powi(2) / 4.0);
+        // JB critical value at p=0.01 with 2 dof: 9.21
+        assert!(jb < 9.21, "JB={jb}, skew={skewness}, kurt={kurtosis} — Gaussian fails normality");
+    }
+
+    #[test]
+    fn exponential_rate_chi_square() {
+        let lambda = 2.0_f32;
+        let n = 10000usize;
+        let bins = 10usize;
+        // Exponential CDF: F(x) = 1 - exp(-lambda*x)
+        // Bin boundaries at F^{-1}(i/bins) = -ln(1 - i/bins) / lambda
+        let boundaries: Vec<f32> = (1..bins)
+            .map(|i| -(1.0 - i as f32 / bins as f32).ln() / lambda)
+            .collect();
+        let counts = (0..n).fold(([0usize; 10], 1u32), |(mut acc, s), _| {
+            let (x, next) = prng_exponential(s, lambda);
+            let bin = boundaries.iter().position(|&b| x < b).unwrap_or(bins - 1);
+            acc[bin] += 1;
+            (acc, next)
+        }).0;
+        let expected = n as f32 / bins as f32;
+        let chi_sq: f32 = counts.iter()
+            .map(|&c| (c as f32 - expected).powi(2) / expected)
+            .sum();
+        assert!(chi_sq < 21.67, "chi_sq={chi_sq} — Exponential fails distribution test");
+    }
+
+    #[test]
+    fn disk_uniform_area_coverage() {
+        // Points in inner half of disk (r < R/2) should be ~25% (area ratio)
+        let n = 10000usize;
+        let radius = 10.0_f32;
+        let inner_count = (0..n).fold((0usize, 1u32), |(count, s), _| {
+            let (x, y, next) = prng_disk_uniform(s, radius);
+            let r = (x * x + y * y).sqrt();
+            (count + if r < radius / 2.0 { 1 } else { 0 }, next)
+        }).0;
+        let ratio = inner_count as f32 / n as f32;
+        // Expected: (R/2)^2 / R^2 = 0.25, tolerance 3%
+        assert!((ratio - 0.25).abs() < 0.03, "inner ratio={ratio}, expected ~0.25");
+    }
+
+    #[test]
+    fn annulus_uniform_area_coverage() {
+        // Points in inner half of annulus area should be ~50%
+        let n = 10000usize;
+        let r_inner = 3.0_f32;
+        let r_outer = 7.0_f32;
+        let r_mid_sq = (r_inner * r_inner + r_outer * r_outer) / 2.0;
+        let r_mid = r_mid_sq.sqrt();
+        let inner_count = (0..n).fold((0usize, 1u32), |(count, s), _| {
+            let (x, y, next) = prng_annulus_uniform(s, r_inner, r_outer);
+            let r = (x * x + y * y).sqrt();
+            (count + if r < r_mid { 1 } else { 0 }, next)
+        }).0;
+        let ratio = inner_count as f32 / n as f32;
+        assert!((ratio - 0.5).abs() < 0.03, "inner ratio={ratio}, expected ~0.5");
+    }
+
+    #[test]
+    fn halton_lower_discrepancy_than_prng() {
+        // Halton should fill [0,1)^2 more uniformly than pseudo-random
+        let n = 256usize;
+        let bins = 4usize; // 4x4 grid = 16 cells
+        // Halton
+        let halton_counts = (0..n).fold([0usize; 16], |mut acc, i| {
+            let (x, y) = halton_2d(i as u32);
+            let bx = (x * bins as f32).min((bins - 1) as f32) as usize;
+            let by = (y * bins as f32).min((bins - 1) as f32) as usize;
+            acc[by * bins + bx] += 1;
+            acc
+        });
+        // PRNG
+        let prng_counts = (0..n).fold(([0usize; 16], 42u32), |(mut acc, s), _| {
+            let (x, s1) = prng_next(s);
+            let (y, s2) = prng_next(s1);
+            let bx = (x * bins as f32).min((bins - 1) as f32) as usize;
+            let by = (y * bins as f32).min((bins - 1) as f32) as usize;
+            acc[by * bins + bx] += 1;
+            (acc, s2)
+        }).0;
+        let expected = n as f32 / 16.0;
+        let halton_chi: f32 = halton_counts.iter().map(|&c| (c as f32 - expected).powi(2) / expected).sum();
+        let prng_chi: f32 = prng_counts.iter().map(|&c| (c as f32 - expected).powi(2) / expected).sum();
+        assert!(halton_chi < prng_chi, "Halton chi={halton_chi} should be < PRNG chi={prng_chi}");
+    }
+
+    #[test]
+    fn poisson_disk_packing_density() {
+        let width = 100.0_f32;
+        let height = 100.0_f32;
+        let min_dist = 5.0_f32;
+        let (pts, _) = poisson_disk_2d(42, width, height, min_dist, 30);
+        // Theoretical max: area / (pi * (r/2)^2) where r = min_dist
+        let theoretical_max = (width * height) / (PI * (min_dist / 2.0).powi(2));
+        let density = pts.len() as f32 / theoretical_max;
+        // Bridson typically achieves 60-80% of theoretical max
+        assert!(density > 0.50, "density={density} ({} points), expected >50%", pts.len());
+        assert!(density < 0.95, "density={density} — suspiciously high");
+    }
 }
