@@ -5,6 +5,27 @@
 //! Thesis: the seed IS the thread. Who holds the seed controls who can
 //! advance it. Consent revocation = stop threading the seed forward.
 //! No DELETE needed — the sequence is causally inert without its key.
+//!
+//! # Receiver Model
+//!
+//! Each function is a **receiver** (context function) that extracts typed
+//! information from the same causal datum (a u32 seed). The same seed
+//! produces different valid outputs depending on which receiver reads it:
+//!
+//! | Receiver | Output | Interpretation |
+//! |----------|--------|----------------|
+//! | `prng_next` | `f32` | Uniform probability in [0, 1) |
+//! | `prng_bool` | `bool` | Bernoulli trial with threshold p |
+//! | `prng_gaussian` | `f32` | Standard normal N(0, 1) |
+//! | `prng_exponential` | `f32` | Waiting time with rate λ |
+//! | `prng_disk_uniform` | `(f32, f32)` | Spatial coordinate in disk |
+//! | `prng_annulus_uniform` | `(f32, f32)` | Spatial coordinate in annulus |
+//! | `prng_choose` | `&T` | Element selection from collection |
+//! | `weighted_choice` | `usize` | Weighted element index |
+//!
+//! This is the thesis **Context primitive**: `I(data, receiver)` not `I(data)`.
+//! Information is relational — a property of the relationship between the
+//! causal datum and the function that reads it.
 
 use std::f32::consts::PI;
 
@@ -71,6 +92,52 @@ pub fn prng_bool(seed: u32, p: f32) -> (bool, u32) {
 pub fn prng_next_with_entropy(seed: u32, entropy: u32) -> (f32, u32) {
     let (value, next) = prng_next(seed);
     (value, next ^ entropy)
+}
+
+// ── Causal traceability ─────────────────────────────────────────────────────
+
+/// A value with its causal parent recorded.
+///
+/// Enables backward traversal of deterministic sequences. The `parent_seed`
+/// records which seed produced this value, allowing replay verification
+/// without storing the full history.
+///
+/// # Thesis
+/// The fold pattern preserves causal sequence but doesn't record ancestry.
+/// `CausalStep` makes the parent explicit — you can always answer
+/// "what input produced this output?" without replaying from genesis.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CausalStep<T> {
+    /// The computed value at this step.
+    pub value: T,
+    /// The seed that was the causal parent of this value.
+    pub parent_seed: u32,
+    /// The next seed (causal successor).
+    pub next_seed: u32,
+}
+
+/// `prng_next` with causal ancestry recorded.
+/// ```rust
+/// # use prime_random::{prng_next_causal, CausalStep};
+/// let step = prng_next_causal(42);
+/// assert_eq!(step.parent_seed, 42);
+/// assert!(step.value >= 0.0 && step.value < 1.0);
+/// ```
+pub fn prng_next_causal(seed: u32) -> CausalStep<f32> {
+    let (value, next_seed) = prng_next(seed);
+    CausalStep { value, parent_seed: seed, next_seed }
+}
+
+/// `prng_gaussian` with causal ancestry recorded.
+/// ```rust
+/// # use prime_random::{prng_gaussian_causal, CausalStep};
+/// let step = prng_gaussian_causal(42);
+/// assert!(step.value.is_finite());
+/// assert_eq!(step.parent_seed, 42);
+/// ```
+pub fn prng_gaussian_causal(seed: u32) -> CausalStep<f32> {
+    let (value, next_seed) = prng_gaussian(seed);
+    CausalStep { value, parent_seed: seed, next_seed }
 }
 
 /// Fisher-Yates shuffle. Returns new Vec, original unchanged. O(n).
@@ -949,5 +1016,51 @@ mod tests {
     fn mc_1d_variance_zero_for_n1() {
         let (_, var, _) = monte_carlo_1d_with_variance(42, |x| x.sin(), 0.0, PI, 1);
         assert_eq!(var, 0.0);
+    }
+
+    // ── CausalStep ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn causal_step_records_parent() {
+        let step = prng_next_causal(42);
+        assert_eq!(step.parent_seed, 42);
+        let (v, _) = prng_next(42);
+        assert_eq!(step.value.to_bits(), v.to_bits());
+    }
+
+    #[test]
+    fn causal_step_chain_is_traceable() {
+        let s0 = prng_next_causal(42);
+        let s1 = prng_next_causal(s0.next_seed);
+        let s2 = prng_next_causal(s1.next_seed);
+        // Chain: 42 -> s0.next_seed -> s1.next_seed -> s2.next_seed
+        assert_eq!(s1.parent_seed, s0.next_seed);
+        assert_eq!(s2.parent_seed, s1.next_seed);
+    }
+
+    #[test]
+    fn causal_gaussian_records_parent() {
+        let step = prng_gaussian_causal(42);
+        assert_eq!(step.parent_seed, 42);
+        let (v, _) = prng_gaussian(42);
+        assert_eq!(step.value.to_bits(), v.to_bits());
+    }
+
+    #[test]
+    fn causal_step_in_fold() {
+        // Build a causal log via fold
+        let history: Vec<CausalStep<f32>> = (0..10).fold(
+            (vec![], 42u32),
+            |(mut log, seed), _| {
+                let step = prng_next_causal(seed);
+                let next = step.next_seed;
+                log.push(step);
+                (log, next)
+            },
+        ).0;
+        // Every step's parent is the previous step's next_seed
+        (1..history.len()).for_each(|i| {
+            assert_eq!(history[i].parent_seed, history[i - 1].next_seed);
+        });
     }
 }

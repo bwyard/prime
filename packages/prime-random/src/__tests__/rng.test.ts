@@ -20,7 +20,10 @@ import {
   monteCarlo2d,
   monteCarlo1dWithVariance,
   poissonDisk2d,
+  prngNextCausal,
+  prngGaussianCausal,
 } from '../index.js'
+import type { CausalStep } from '../index.js'
 
 // ── prngNext ─────────────────────────────────────────────────────────────────
 
@@ -502,6 +505,52 @@ describe('poissonDisk2d', () => {
     const [, seed] = poissonDisk2d(42, 100, 100, 10)
     expect(typeof seed).toBe('number')
     expect(seed).not.toBe(42)
+  })
+})
+
+// ── CausalStep ──────────────────────────────────────────────────────────────────
+
+describe('prngNextCausal', () => {
+  it('records parent seed', () => {
+    const step = prngNextCausal(42)
+    expect(step.parentSeed).toBe(42)
+    const [v] = prngNext(42)
+    expect(step.value).toBe(v)
+  })
+
+  it('chain is traceable', () => {
+    const s0 = prngNextCausal(42)
+    const s1 = prngNextCausal(s0.nextSeed)
+    const s2 = prngNextCausal(s1.nextSeed)
+    expect(s1.parentSeed).toBe(s0.nextSeed)
+    expect(s2.parentSeed).toBe(s1.nextSeed)
+  })
+
+  it('fold builds traceable log', () => {
+    const history: CausalStep<number>[] = Array.from<null>({ length: 10 }).reduce(
+      ([log, seed]: [CausalStep<number>[], number]): [CausalStep<number>[], number] => {
+        const step = prngNextCausal(seed)
+        return [[...log, step], step.nextSeed]
+      },
+      [[] as CausalStep<number>[], 42] as [CausalStep<number>[], number],
+    )[0]
+    Array.from({ length: history.length - 1 }, (_, i) => i + 1).forEach(i => {
+      expect(history[i].parentSeed).toBe(history[i - 1].nextSeed)
+    })
+  })
+})
+
+describe('prngGaussianCausal', () => {
+  it('records parent seed', () => {
+    const step = prngGaussianCausal(42)
+    expect(step.parentSeed).toBe(42)
+    const [v] = prngGaussian(42)
+    expect(step.value).toBe(v)
+  })
+
+  it('value is finite', () => {
+    const step = prngGaussianCausal(42)
+    expect(Number.isFinite(step.value)).toBe(true)
   })
 })
 
