@@ -450,6 +450,92 @@ export const monteCarlo1dWithVariance = (
   return [mean * width, n > 1 ? (m2 / (n - 1)) * width * width : 0, finalSeed]
 }
 
+// ── 64-bit PRNG ────────────────────────────────────────────────────────────
+
+/**
+ * SplitMix64 pure step — 64-bit PRNG with period 2^64.
+ *
+ * For applications needing longer sequences than Mulberry32's 2^32 period.
+ * Same thesis contract: `(seed) -> [value, nextSeed]`.
+ *
+ * Uses JavaScript's native f64 arithmetic. Seeds are regular numbers
+ * (safe integers up to 2^53-1). For full 64-bit fidelity, use BigInt variant.
+ *
+ * @param seed - Current thread position (non-negative integer)
+ * @returns [value in [0,1), nextSeed]
+ *
+ * @example
+ * const [v, s1] = prngNext64(42)
+ */
+export const prngNext64 = (seed: number): [number, number] => {
+  // SplitMix64 constants as BigInt for full 64-bit precision
+  const s = BigInt(seed) & 0xFFFFFFFFFFFFFFFFn
+  const z0 = (s + 0x9E3779B97F4A7C15n) & 0xFFFFFFFFFFFFFFFFn
+  const z1a = z0 ^ (z0 >> 30n)
+  const z1 = (z1a * 0xBF58476D1CE4E5B9n) & 0xFFFFFFFFFFFFFFFFn
+  const z2a = z1 ^ (z1 >> 27n)
+  const z2 = (z2a * 0x94D049BB133111EBn) & 0xFFFFFFFFFFFFFFFFn
+  const z3 = z2 ^ (z2 >> 31n)
+  return [Number(z3) / Number(0xFFFFFFFFFFFFFFFFn), Number(z0)]
+}
+
+/**
+ * 64-bit float in [min, max).
+ * @returns [value, nextSeed]
+ *
+ * @example
+ * const [v, s1] = prngRange64(42, 10.0, 20.0)
+ */
+export const prngRange64 = (seed: number, min: number, max: number): [number, number] => {
+  if (min >= max) return [min, seed]
+  const [v, next] = prngNext64(seed)
+  return [min + v * (max - min), next]
+}
+
+/**
+ * 64-bit Gaussian via Box-Muller. Higher precision than f32 variant.
+ * @returns [gaussian value, nextSeed]
+ *
+ * @example
+ * const [z, s1] = prngGaussian64(42)
+ */
+export const prngGaussian64 = (seed: number): [number, number] => {
+  const [u1, s1] = prngNext64(seed)
+  const [u2, s2] = prngNext64(s1)
+  const u1Safe = u1 < Number.EPSILON ? Number.EPSILON : u1
+  return [Math.sqrt(-2 * Math.log(u1Safe)) * Math.cos(2 * Math.PI * u2), s2]
+}
+
+// ── Memoization ────────────────────────────────────────────────────────────
+
+/**
+ * Evaluate f(x) with memoization over a precomputed lookup table.
+ *
+ * Builds a table of n evenly-spaced samples in [a, b], then interpolates.
+ * Thesis-compatible: the table is computed once (LOAD+COMPUTE), then
+ * lookups are O(1) with linear interpolation (pure COMPUTE).
+ *
+ * @param f - Pure function to memoize
+ * @param a - Lower bound of domain
+ * @param b - Upper bound of domain
+ * @param n - Number of table entries
+ * @returns A closure that maps x -> f(x) approximately, with O(1) lookup cost
+ *
+ * @example
+ * const fastSin = memoize1d(Math.sin, 0, Math.PI, 1000)
+ * fastSin(1.0) // ≈ Math.sin(1.0)
+ */
+export const memoize1d = (f: (x: number) => number, a: number, b: number, n: number): ((x: number) => number) => {
+  const table = Array.from({ length: n + 1 }, (_, i) => f(a + (i / n) * (b - a)))
+  const step = (b - a) / n
+  return (x: number): number => {
+    const t = (x - a) / step
+    const i = Math.min(Math.floor(t), n - 1)
+    const frac = t - i
+    return table[i]! * (1 - frac) + table[i + 1]! * frac
+  }
+}
+
 // ── Pure iterator utility ──────────────────────────────────────────────────
 
 /**

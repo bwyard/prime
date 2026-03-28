@@ -22,6 +22,10 @@ import {
   poissonDisk2d,
   prngNextCausal,
   prngGaussianCausal,
+  prngNext64,
+  prngRange64,
+  prngGaussian64,
+  memoize1d,
 } from '../index.js'
 import type { CausalStep } from '../index.js'
 
