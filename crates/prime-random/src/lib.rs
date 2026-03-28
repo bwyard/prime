@@ -10,30 +10,15 @@ use std::f32::consts::PI;
 
 // ── Pure PRNG primitives ─────────────────────────────────────────────────────
 
-/// Mulberry32 pure step — LOAD + COMPUTE only.
+/// Mulberry32 pure step. `(seed) → (value in [0,1), next_seed)`.
 ///
-/// # Math
-///   z0 = (seed + 0x6D2B79F5) mod 2^32
-///   z1 = (z0 XOR (z0 >> 15)) * (z0 | 1)
-///   z2 = z1 XOR (z1 + (z1 XOR (z1 >> 7)) * (z1 | 61))
-///   out = (z2 XOR (z2 >> 14)) / 2^32
-///
-/// Same algorithm as TypeScript prime-random for cross-language parity.
-/// Same seed → same sequence in both languages.
-///
-/// # Arguments
-/// * `seed` - Current thread position (u32)
-///
-/// # Returns
-/// `(value, next_seed)` — thread next_seed forward to continue.
+/// Cross-language parity: identical algorithm in TypeScript.
 ///
 /// # Example
 /// ```rust
 /// use prime_random::prng_next;
-/// let (v1, s1) = prng_next(42);
-/// let (v2, s2) = prng_next(s1);
-/// assert!(v1 >= 0.0 && v1 < 1.0);
-/// assert!(v2 >= 0.0 && v2 < 1.0);
+/// let (v, s1) = prng_next(42);
+/// assert!(v >= 0.0 && v < 1.0);
 /// ```
 pub fn prng_next(seed: u32) -> (f32, u32) {
     let z0 = seed.wrapping_add(0x6D2B79F5);
@@ -43,12 +28,10 @@ pub fn prng_next(seed: u32) -> (f32, u32) {
     (value as f32, z0)
 }
 
-/// Pure float in [min, max). Returns (value, next_seed).
-///
-/// # Example
+/// Float in `[min, max)`. Returns `(min, seed)` when `min >= max`.
 /// ```rust
-/// use prime_random::prng_range_f32;
-/// let (v, _s1) = prng_range_f32(0, 2.0, 5.0);
+/// # use prime_random::prng_range_f32;
+/// let (v, _) = prng_range_f32(0, 2.0, 5.0);
 /// assert!(v >= 2.0 && v < 5.0);
 /// ```
 pub fn prng_range_f32(seed: u32, min: f32, max: f32) -> (f32, u32) {
@@ -57,12 +40,10 @@ pub fn prng_range_f32(seed: u32, min: f32, max: f32) -> (f32, u32) {
     (min + v * (max - min), next)
 }
 
-/// Pure usize in [0, n). Returns (value, next_seed).
-///
-/// # Example
+/// Integer in `[0, n)`.
 /// ```rust
-/// use prime_random::prng_range_usize;
-/// let (i, _s1) = prng_range_usize(0, 10);
+/// # use prime_random::prng_range_usize;
+/// let (i, _) = prng_range_usize(0, 10);
 /// assert!(i < 10);
 /// ```
 pub fn prng_range_usize(seed: u32, n: usize) -> (usize, u32) {
@@ -70,12 +51,10 @@ pub fn prng_range_usize(seed: u32, n: usize) -> (usize, u32) {
     ((v * n as f32) as usize, next)
 }
 
-/// Pure bool with probability p of true. Returns (value, next_seed).
-///
-/// # Example
+/// Bool with probability `p` of true. Clamps `p` to `[0, 1]`.
 /// ```rust
-/// use prime_random::prng_bool;
-/// let (b, _s1) = prng_bool(0, 1.0);
+/// # use prime_random::prng_bool;
+/// let (b, _) = prng_bool(0, 1.0);
 /// assert!(b);
 /// ```
 pub fn prng_bool(seed: u32, p: f32) -> (bool, u32) {
@@ -83,26 +62,10 @@ pub fn prng_bool(seed: u32, p: f32) -> (bool, u32) {
     (v < p.clamp(0.0, 1.0), next)
 }
 
-/// Advance PRNG with external entropy mixed into the next seed.
-///
-/// # Math
-///   Same as `prng_next`, but next_seed is XOR'd with caller-supplied entropy.
-///   Pass `entropy = 0` for standard deterministic behavior.
-///
-/// # Arguments
-/// * `seed` - Current thread position
-/// * `entropy` - External entropy (XOR'd into next_seed)
-///
-/// # Returns
-/// `(value, next_seed ^ entropy)` — value is identical to `prng_next(seed)`.
-///
-/// # Edge cases
-/// * `entropy = 0` → identical to `prng_next`
-///
-/// # Example
+/// PRNG step with external entropy XOR'd into next_seed. `entropy = 0` is identical to [`prng_next`].
 /// ```rust
-/// use prime_random::prng_next_with_entropy;
-/// let (v, s1) = prng_next_with_entropy(42, 0xDEADBEEF);
+/// # use prime_random::prng_next_with_entropy;
+/// let (v, _) = prng_next_with_entropy(42, 0xDEADBEEF);
 /// assert!(v >= 0.0 && v < 1.0);
 /// ```
 pub fn prng_next_with_entropy(seed: u32, entropy: u32) -> (f32, u32) {
@@ -110,22 +73,12 @@ pub fn prng_next_with_entropy(seed: u32, entropy: u32) -> (f32, u32) {
     (value, next ^ entropy)
 }
 
-/// Pure Fisher-Yates shuffle — returns new Vec, original unchanged.
-///
-/// # Math
-/// For i from n-1 down to 1: j = randInt(0, i+1); swap(arr[i], arr[j])
-/// Every permutation equally probable. O(n).
-///
-/// # Returns
-/// (shuffled_vec, next_seed)
-///
-/// # Example
+/// Fisher-Yates shuffle. Returns new Vec, original unchanged. O(n).
 /// ```rust
-/// use prime_random::prng_shuffled;
+/// # use prime_random::prng_shuffled;
 /// let v = vec![1, 2, 3, 4, 5];
-/// let (s, _seed) = prng_shuffled(0, &v);
+/// let (s, _) = prng_shuffled(0, &v);
 /// assert_eq!(s.len(), 5);
-/// assert_eq!(v, vec![1, 2, 3, 4, 5]); // original unchanged
 /// ```
 pub fn prng_shuffled<T: Clone>(seed: u32, slice: &[T]) -> (Vec<T>, u32) {
     (1..slice.len()).rev().fold(
@@ -138,13 +91,10 @@ pub fn prng_shuffled<T: Clone>(seed: u32, slice: &[T]) -> (Vec<T>, u32) {
     )
 }
 
-/// Pure random element from slice. Returns (Some(&element), next_seed) or (None, seed).
-///
-/// # Example
+/// Random element from slice. `None` if empty.
 /// ```rust
-/// use prime_random::prng_choose;
-/// let v = vec!["a", "b", "c"];
-/// let (pick, _s1) = prng_choose(0, &v);
+/// # use prime_random::prng_choose;
+/// let (pick, _) = prng_choose(0, &["a", "b", "c"]);
 /// assert!(pick.is_some());
 /// ```
 pub fn prng_choose<T>(seed: u32, slice: &[T]) -> (Option<&T>, u32) {
@@ -155,25 +105,12 @@ pub fn prng_choose<T>(seed: u32, slice: &[T]) -> (Option<&T>, u32) {
 
 // ── Probability distributions ───────────────────────────────────────────────
 
-/// Box-Muller transform — one standard normal sample N(0,1).
+/// Standard normal sample N(0,1) via Box-Muller. Consumes 2 draws.
 ///
-/// # Math
-///   u1, u2 ~ Uniform(0, 1)
-///   z = sqrt(-2 * ln(u1)) * cos(2 * pi * u2)
-///
-/// # Arguments
-/// * `seed` - Thread position (consumes 2 PRNG draws)
-///
-/// # Returns
-/// `(z, next_seed)` where z ~ N(0, 1).
-///
-/// # Edge cases
-/// * u1 near 0 is clamped to `f32::EPSILON` to avoid `ln(0)`
-///
-/// # Example
+/// `z = sqrt(-2 ln(u1)) * cos(2π u2)`. Clamps u1 away from 0.
 /// ```rust
-/// use prime_random::prng_gaussian;
-/// let (z, s1) = prng_gaussian(42);
+/// # use prime_random::prng_gaussian;
+/// let (z, _) = prng_gaussian(42);
 /// assert!(z.is_finite());
 /// ```
 pub fn prng_gaussian(seed: u32) -> (f32, u32) {
@@ -184,23 +121,10 @@ pub fn prng_gaussian(seed: u32) -> (f32, u32) {
     (z, s2)
 }
 
-/// Full Box-Muller — returns both Gaussian values from the pair.
-///
-/// # Math
-///   r = sqrt(-2 * ln(u1))
-///   z0 = r * cos(2 * pi * u2)
-///   z1 = r * sin(2 * pi * u2)
-///
-/// # Arguments
-/// * `seed` - Thread position (consumes 2 PRNG draws)
-///
-/// # Returns
-/// `(z0, z1, next_seed)` where z0, z1 ~ N(0, 1) independently.
-///
-/// # Example
+/// Full Box-Muller pair: `(z0, z1, next_seed)` where both are N(0,1).
 /// ```rust
-/// use prime_random::prng_gaussian_pair;
-/// let (z0, z1, s1) = prng_gaussian_pair(42);
+/// # use prime_random::prng_gaussian_pair;
+/// let (z0, z1, _) = prng_gaussian_pair(42);
 /// assert!(z0.is_finite() && z1.is_finite());
 /// ```
 pub fn prng_gaussian_pair(seed: u32) -> (f32, f32, u32) {
@@ -212,25 +136,10 @@ pub fn prng_gaussian_pair(seed: u32) -> (f32, f32, u32) {
     (r * theta.cos(), r * theta.sin(), s2)
 }
 
-/// Exponential distribution sample via inverse CDF.
-///
-/// # Math
-///   x = -ln(1 - u) / lambda
-///
-/// # Arguments
-/// * `seed` - Thread position
-/// * `lambda` - Rate parameter (must be > 0)
-///
-/// # Returns
-/// `(x, next_seed)` where x ~ Exp(lambda). Always positive.
-///
-/// # Edge cases
-/// * `lambda <= 0` → returns `(0.0, next_seed)`
-///
-/// # Example
+/// Exponential sample: `x = -ln(1-u)/λ`. Returns 0 when `lambda <= 0`.
 /// ```rust
-/// use prime_random::prng_exponential;
-/// let (x, s1) = prng_exponential(42, 1.0);
+/// # use prime_random::prng_exponential;
+/// let (x, _) = prng_exponential(42, 1.0);
 /// assert!(x > 0.0);
 /// ```
 pub fn prng_exponential(seed: u32, lambda: f32) -> (f32, u32) {
@@ -239,23 +148,11 @@ pub fn prng_exponential(seed: u32, lambda: f32) -> (f32, u32) {
     (-(1.0 - u).ln() / lambda, next)
 }
 
-/// Uniform random point inside a disk of given radius. No rejection sampling.
+/// Uniform random point inside a disk. No rejection sampling.
 ///
-/// # Math
-///   angle = 2 * pi * u1
-///   dist = radius * sqrt(u2)   — sqrt gives area-uniform distribution
-///   (x, y) = (dist * cos(angle), dist * sin(angle))
-///
-/// # Arguments
-/// * `seed` - Thread position (consumes 2 PRNG draws)
-/// * `radius` - Disk radius
-///
-/// # Returns
-/// `(x, y, next_seed)` — point uniformly distributed in disk.
-///
-/// # Example
+/// `dist = radius * sqrt(u2)` gives area-uniform distribution.
 /// ```rust
-/// use prime_random::prng_disk_uniform;
+/// # use prime_random::prng_disk_uniform;
 /// let (x, y, s1) = prng_disk_uniform(42, 5.0);
 /// assert!(x * x + y * y <= 25.0 + 1e-5);
 /// ```
@@ -267,26 +164,11 @@ pub fn prng_disk_uniform(seed: u32, radius: f32) -> (f32, f32, u32) {
     (dist * angle.cos(), dist * angle.sin(), s2)
 }
 
-/// Uniform random point in annulus [r_inner, r_outer]. Area-uniform.
+/// Uniform random point in annulus `[r_inner, r_outer]`. Area-uniform.
 ///
-/// # Math
-///   angle = 2 * pi * u1
-///   dist = sqrt(r_inner^2 + u2 * (r_outer^2 - r_inner^2))
-///
-/// # Arguments
-/// * `seed` - Thread position (consumes 2 PRNG draws)
-/// * `r_inner` - Inner radius
-/// * `r_outer` - Outer radius
-///
-/// # Returns
-/// `(x, y, next_seed)` — point uniformly distributed in annulus.
-///
-/// # Edge cases
-/// * `r_inner >= r_outer` → samples on circle of radius `r_inner`
-///
-/// # Example
+/// `dist = sqrt(r_inner^2 + u2 * (r_outer^2 - r_inner^2))`
 /// ```rust
-/// use prime_random::prng_annulus_uniform;
+/// # use prime_random::prng_annulus_uniform;
 /// let (x, y, s1) = prng_annulus_uniform(42, 3.0, 6.0);
 /// let d = (x * x + y * y).sqrt();
 /// assert!(d >= 3.0 - 1e-5 && d <= 6.0 + 1e-5);
@@ -303,26 +185,12 @@ pub fn prng_annulus_uniform(seed: u32, r_inner: f32, r_outer: f32) -> (f32, f32,
 
 // ── Pure higher-order functions ───────────────────────────────────────────────
 
-/// Weighted random choice — O(n) linear scan. Pure LOAD + COMPUTE.
+/// Weighted random choice — O(n) linear scan.
 ///
-/// # Math
-/// Sample u ~ Uniform(0, sum(weights)).
-/// Walk weights; return first index where cumulative sum ≥ u.
-///
-/// # Arguments
-/// * `seed` - Thread position
-/// * `weights` - Non-negative f32 weights. Must sum > 0.
-///
-/// # Returns
-/// (chosen_index, next_seed)
-///
-/// # Edge cases
-/// * Empty → (0, seed)
-/// * All zero → (last_index, seed)
-///
-/// # Example
+/// Sample `u ~ Uniform(0, sum(weights))`, return first index where cumulative sum >= u.
+/// Empty weights returns 0; all-zero weights returns last index.
 /// ```rust
-/// use prime_random::weighted_choice;
+/// # use prime_random::weighted_choice;
 /// let (i, _s1) = weighted_choice(0, &[1.0, 2.0, 1.0]);
 /// assert!(i < 3);
 /// ```
@@ -344,22 +212,12 @@ pub fn weighted_choice(seed: u32, weights: &[f32]) -> (usize, u32) {
 
 // ── Quasi-random sequences ──────────────────────────────────────────────────
 
-/// Van der Corput radical inverse — low-discrepancy sequence in [0, 1).
+/// Van der Corput radical inverse — low-discrepancy sequence in `[0, 1)`.
 ///
-/// # Math
-///   Reflect the base-b digits of n around the decimal point.
-///   vdc(5, 2) = 0.625 because 5 = 101₂ → 0.101₂ = 5/8
-///
-/// # Arguments
-/// * `n` - Sequence index (0-based)
-/// * `base` - Number base (typically prime: 2, 3, 5, ...)
-///
-/// # Returns
-/// Value in [0, 1). Returns 0.0 for n = 0.
-///
-/// # Example
+/// Reflects the base-b digits of `n` around the decimal point:
+/// `vdc(5, 2) = 0.101₂ = 5/8`.
 /// ```rust
-/// use prime_random::van_der_corput;
+/// # use prime_random::van_der_corput;
 /// assert!((van_der_corput(1, 2) - 0.5).abs() < 1e-10);
 /// assert!((van_der_corput(2, 2) - 0.25).abs() < 1e-10);
 /// ```
@@ -377,20 +235,9 @@ pub fn van_der_corput(n: u32, base: u32) -> f32 {
     result as f32
 }
 
-/// 2D Halton sequence using bases 2 and 3.
-///
-/// # Math
-///   (van_der_corput(n, 2), van_der_corput(n, 3))
-///
-/// # Arguments
-/// * `n` - Sequence index (0-based)
-///
-/// # Returns
-/// `(x, y)` in [0, 1)^2.
-///
-/// # Example
+/// 2D Halton sequence using bases 2 and 3. Returns `(x, y)` in `[0, 1)^2`.
 /// ```rust
-/// use prime_random::halton_2d;
+/// # use prime_random::halton_2d;
 /// let (x, y) = halton_2d(1);
 /// assert!((x - 0.5).abs() < 1e-5);
 /// ```
@@ -398,17 +245,9 @@ pub fn halton_2d(n: u32) -> (f32, f32) {
     (van_der_corput(n, 2), van_der_corput(n, 3))
 }
 
-/// 3D Halton sequence using bases 2, 3, and 5.
-///
-/// # Arguments
-/// * `n` - Sequence index (0-based)
-///
-/// # Returns
-/// `(x, y, z)` in [0, 1)^3.
-///
-/// # Example
+/// 3D Halton sequence using bases 2, 3, and 5. Returns `(x, y, z)` in `[0, 1)^3`.
 /// ```rust
-/// use prime_random::halton_3d;
+/// # use prime_random::halton_3d;
 /// let (x, y, z) = halton_3d(1);
 /// assert!((x - 0.5).abs() < 1e-5);
 /// assert!((z - 0.2).abs() < 1e-5);
@@ -419,24 +258,11 @@ pub fn halton_3d(n: u32) -> (f32, f32, f32) {
 
 // ── Monte Carlo integration ─────────────────────────────────────────────────
 
-/// 1D Monte Carlo integration of f over [a, b].
+/// 1D Monte Carlo integration of `f` over `[a, b]`.
 ///
-/// # Math
-///   estimate = (b - a) / n * Σ f(x_i)  where x_i ~ Uniform(a, b)
-///
-/// # Arguments
-/// * `seed` - Thread position
-/// * `f` - Integrand
-/// * `a` - Lower bound
-/// * `b` - Upper bound
-/// * `n` - Number of samples
-///
-/// # Returns
-/// `(estimate, final_seed)` — integral estimate and advanced seed.
-///
-/// # Example
+/// `estimate = (b - a) / n * Σ f(x_i)` where `x_i ~ Uniform(a, b)`.
 /// ```rust
-/// use prime_random::monte_carlo_1d;
+/// # use prime_random::monte_carlo_1d;
 /// let (est, _s) = monte_carlo_1d(42, |x| x.sin(), 0.0, std::f32::consts::PI, 10000);
 /// assert!((est - 2.0).abs() < 0.1);
 /// ```
