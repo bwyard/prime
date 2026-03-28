@@ -9,3 +9,10 @@ keywords    = ["random", "prng", "procedural", "deterministic", "game-dev"]
 categories  = ["mathematics", "game-engines"]
 
 [dependencies]
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "prng_bench"
+harness = false

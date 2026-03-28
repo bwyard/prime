@@ -7,6 +7,18 @@ import {
   prngShuffled,
   prngChoose,
   weightedChoice,
+  prngNextWithEntropy,
+  prngGaussian,
+  prngGaussianPair,
+  prngExponential,
+  prngDiskUniform,
+  prngAnnulusUniform,
+  vanDerCorput,
+  halton2d,
+  halton3d,
+  monteCarlo1d,
+  monteCarlo2d,
+  monteCarlo1dWithVariance,
   poissonDisk2d,
 } from '../index.js'
 
@@ -183,12 +195,278 @@ describe('weightedChoice', () => {
   })
 })
 
+// ── prngNextWithEntropy ──────────────────────────────────────────────────────
+
+describe('prngNextWithEntropy', () => {
+  it('entropy=0 produces same value as prngNext', () => {
+    const [valueA] = prngNextWithEntropy(42, 0)
+    const [valueB] = prngNext(42)
+    expect(valueA).toBe(valueB)
+  })
+
+  it('entropy=0 produces same next seed as prngNext', () => {
+    const [, nextA] = prngNextWithEntropy(42, 0)
+    const [, nextB] = prngNext(42)
+    expect(nextA).toBe(nextB)
+  })
+
+  it('different entropy changes next seed', () => {
+    const [, nextA] = prngNextWithEntropy(42, 0xDEADBEEF)
+    const [, nextB] = prngNextWithEntropy(42, 0)
+    expect(nextA).not.toBe(nextB)
+  })
+
+  it('is deterministic', () => {
+    const [vA, sA] = prngNextWithEntropy(100, 0xCAFE)
+    const [vB, sB] = prngNextWithEntropy(100, 0xCAFE)
+    expect(vA).toBe(vB)
+    expect(sA).toBe(sB)
+  })
+})
+
+// ── prngGaussian ─────────────────────────────────────────────────────────────
+
+describe('prngGaussian', () => {
+  it('is deterministic', () => {
+    const [a] = prngGaussian(42)
+    const [b] = prngGaussian(42)
+    expect(a).toBe(b)
+  })
+
+  it('mean ~0 and stddev ~1 over 10K samples', () => {
+    const n = 10000
+    const [sum, sumSq] = Array.from<null>({ length: n }).reduce(
+      ([accSum, accSumSq, s]: [number, number, number]): [number, number, number] => {
+        const [g, next] = prngGaussian(s)
+        return [accSum + g, accSumSq + g * g, next]
+      },
+      [0, 0, 1] as [number, number, number],
+    )
+    const mean = sum / n
+    const variance = sumSq / n - mean * mean
+    expect(Math.abs(mean)).toBeLessThan(0.05)
+    expect(Math.abs(Math.sqrt(variance) - 1)).toBeLessThan(0.1)
+  })
+})
+
+// ── prngGaussianPair ─────────────────────────────────────────────────────────
+
+describe('prngGaussianPair', () => {
+  it('is deterministic', () => {
+    const [a0, a1, aS] = prngGaussianPair(42)
+    const [b0, b1, bS] = prngGaussianPair(42)
+    expect(a0).toBe(b0)
+    expect(a1).toBe(b1)
+    expect(aS).toBe(bS)
+  })
+
+  it('both values are normally distributed', () => {
+    const n = 10000
+    const [sum0, sum1, sumSq0, sumSq1] = Array.from<null>({ length: n }).reduce(
+      ([s0, s1, sq0, sq1, s]: [number, number, number, number, number]): [number, number, number, number, number] => {
+        const [g0, g1, next] = prngGaussianPair(s)
+        return [s0 + g0, s1 + g1, sq0 + g0 * g0, sq1 + g1 * g1, next]
+      },
+      [0, 0, 0, 0, 1] as [number, number, number, number, number],
+    )
+    const mean0 = sum0 / n
+    const mean1 = sum1 / n
+    const var0 = sumSq0 / n - mean0 * mean0
+    const var1 = sumSq1 / n - mean1 * mean1
+    expect(Math.abs(mean0)).toBeLessThan(0.05)
+    expect(Math.abs(mean1)).toBeLessThan(0.05)
+    expect(Math.abs(Math.sqrt(var0) - 1)).toBeLessThan(0.1)
+    expect(Math.abs(Math.sqrt(var1) - 1)).toBeLessThan(0.1)
+  })
+})
+
+// ── prngExponential ──────────────────────────────────────────────────────────
+
+describe('prngExponential', () => {
+  it('always positive', () => {
+    Array.from({ length: 1000 }, (_, i) => prngExponential(i, 1.0)[0])
+      .forEach(v => expect(v).toBeGreaterThan(0))
+  })
+
+  it('mean ~1/lambda over 10K samples', () => {
+    const lambda = 2.0
+    const n = 10000
+    const [sum] = Array.from<null>({ length: n }).reduce(
+      ([acc, s]: [number, number]): [number, number] => {
+        const [e, next] = prngExponential(s, lambda)
+        return [acc + e, next]
+      },
+      [0, 1] as [number, number],
+    )
+    const mean = sum / n
+    expect(Math.abs(mean - 1 / lambda)).toBeLessThan(0.05)
+  })
+
+  it('is deterministic', () => {
+    const [a, sA] = prngExponential(42, 3.0)
+    const [b, sB] = prngExponential(42, 3.0)
+    expect(a).toBe(b)
+    expect(sA).toBe(sB)
+  })
+})
+
+// ── prngDiskUniform ──────────────────────────────────────────────────────────
+
+describe('prngDiskUniform', () => {
+  it('all points within radius', () => {
+    const radius = 5.0
+    Array.from({ length: 1000 }, (_, i) => {
+      const [x, y] = prngDiskUniform(i, radius)
+      return Math.sqrt(x * x + y * y)
+    }).forEach(dist => expect(dist).toBeLessThanOrEqual(radius + 1e-10))
+  })
+
+  it('is deterministic', () => {
+    const [x1, y1, s1] = prngDiskUniform(42, 10.0)
+    const [x2, y2, s2] = prngDiskUniform(42, 10.0)
+    expect(x1).toBe(x2)
+    expect(y1).toBe(y2)
+    expect(s1).toBe(s2)
+  })
+})
+
+// ── prngAnnulusUniform ───────────────────────────────────────────────────────
+
+describe('prngAnnulusUniform', () => {
+  it('all points in annulus', () => {
+    const rInner = 3.0
+    const rOuter = 7.0
+    Array.from({ length: 1000 }, (_, i) => {
+      const [x, y] = prngAnnulusUniform(i, rInner, rOuter)
+      return Math.sqrt(x * x + y * y)
+    }).forEach(dist => {
+      expect(dist).toBeGreaterThanOrEqual(rInner - 1e-10)
+      expect(dist).toBeLessThanOrEqual(rOuter + 1e-10)
+    })
+  })
+
+  it('is deterministic', () => {
+    const [x1, y1, s1] = prngAnnulusUniform(42, 2.0, 5.0)
+    const [x2, y2, s2] = prngAnnulusUniform(42, 2.0, 5.0)
+    expect(x1).toBe(x2)
+    expect(y1).toBe(y2)
+    expect(s1).toBe(s2)
+  })
+})
+
+// ── vanDerCorput ─────────────────────────────────────────────────────────────
+
+describe('vanDerCorput', () => {
+  it('known values base 2', () => {
+    expect(vanDerCorput(1, 2)).toBeCloseTo(0.5, 10)
+    expect(vanDerCorput(2, 2)).toBeCloseTo(0.25, 10)
+    expect(vanDerCorput(3, 2)).toBeCloseTo(0.75, 10)
+    expect(vanDerCorput(4, 2)).toBeCloseTo(0.125, 10)
+  })
+
+  it('known values base 3', () => {
+    expect(vanDerCorput(1, 3)).toBeCloseTo(1 / 3, 10)
+    expect(vanDerCorput(2, 3)).toBeCloseTo(2 / 3, 10)
+    expect(vanDerCorput(3, 3)).toBeCloseTo(1 / 9, 10)
+  })
+
+  it('returns 0 for n=0', () => {
+    expect(vanDerCorput(0, 2)).toBe(0)
+  })
+})
+
+// ── halton2d ─────────────────────────────────────────────────────────────────
+
+describe('halton2d', () => {
+  it('known first values', () => {
+    const [x1, y1] = halton2d(1)
+    expect(x1).toBeCloseTo(0.5, 10)
+    expect(y1).toBeCloseTo(1 / 3, 10)
+
+    const [x2, y2] = halton2d(2)
+    expect(x2).toBeCloseTo(0.25, 10)
+    expect(y2).toBeCloseTo(2 / 3, 10)
+  })
+
+  it('returns [0, 0] for n=0', () => {
+    const [x, y] = halton2d(0)
+    expect(x).toBe(0)
+    expect(y).toBe(0)
+  })
+})
+
+// ── halton3d ─────────────────────────────────────────────────────────────────
+
+describe('halton3d', () => {
+  it('known first value', () => {
+    const [x, y, z] = halton3d(1)
+    expect(x).toBeCloseTo(0.5, 10)
+    expect(y).toBeCloseTo(1 / 3, 10)
+    expect(z).toBeCloseTo(0.2, 10)
+  })
+})
+
+// ── monteCarlo1d ─────────────────────────────────────────────────────────────
+
+describe('monteCarlo1d', () => {
+  it('sin(x) over [0, pi] ≈ 2.0', () => {
+    const [estimate] = monteCarlo1d(42, Math.sin, 0, Math.PI, 50000)
+    expect(Math.abs(estimate - 2.0)).toBeLessThan(0.05)
+  })
+
+  it('is deterministic', () => {
+    const [a, sA] = monteCarlo1d(42, Math.sin, 0, Math.PI, 100)
+    const [b, sB] = monteCarlo1d(42, Math.sin, 0, Math.PI, 100)
+    expect(a).toBe(b)
+    expect(sA).toBe(sB)
+  })
+})
+
+// ── monteCarlo2d ─────────────────────────────────────────────────────────────
+
+describe('monteCarlo2d', () => {
+  it('x*y over [0,1]^2 ≈ 0.25', () => {
+    const [estimate] = monteCarlo2d(42, (x, y) => x * y, 0, 1, 0, 1, 50000)
+    expect(Math.abs(estimate - 0.25)).toBeLessThan(0.02)
+  })
+
+  it('is deterministic', () => {
+    const [a, sA] = monteCarlo2d(42, (x, y) => x * y, 0, 1, 0, 1, 100)
+    const [b, sB] = monteCarlo2d(42, (x, y) => x * y, 0, 1, 0, 1, 100)
+    expect(a).toBe(b)
+    expect(sA).toBe(sB)
+  })
+})
+
+// ── monteCarlo1dWithVariance ─────────────────────────────────────────────────
+
+describe('monteCarlo1dWithVariance', () => {
+  it('sin(x) over [0, pi] ≈ 2.0 with positive variance', () => {
+    const [estimate, variance] = monteCarlo1dWithVariance(42, Math.sin, 0, Math.PI, 50000)
+    expect(Math.abs(estimate - 2.0)).toBeLessThan(0.05)
+    expect(variance).toBeGreaterThan(0)
+  })
+
+  it('is deterministic', () => {
+    const [a, vA, sA] = monteCarlo1dWithVariance(42, Math.sin, 0, Math.PI, 100)
+    const [b, vB, sB] = monteCarlo1dWithVariance(42, Math.sin, 0, Math.PI, 100)
+    expect(a).toBe(b)
+    expect(vA).toBe(vB)
+    expect(sA).toBe(sB)
+  })
+
+  it('variance is 0 for n=1', () => {
+    const [, variance] = monteCarlo1dWithVariance(42, Math.sin, 0, Math.PI, 1)
+    expect(variance).toBe(0)
+  })
+})
+
 // ── poissonDisk2d ─────────────────────────────────────────────────────────────
 
 describe('poissonDisk2d', () => {
   it('satisfies minimum distance', () => {
     const minDist = 10
-    const pts = poissonDisk2d(42, 100, 100, minDist)
+    const [pts] = poissonDisk2d(42, 100, 100, minDist)
     expect(pts.length).toBeGreaterThan(0)
     pts.forEach((pi, i) =>
       pts.slice(i + 1).forEach(pj => {
@@ -200,7 +478,7 @@ describe('poissonDisk2d', () => {
   })
 
   it('all points within bounds', () => {
-    const pts = poissonDisk2d(1, 50, 80, 8)
+    const [pts] = poissonDisk2d(1, 50, 80, 8)
     pts.forEach(([x, y]) => {
       expect(x).toBeGreaterThanOrEqual(0)
       expect(x).toBeLessThan(50)
@@ -210,20 +488,26 @@ describe('poissonDisk2d', () => {
   })
 
   it('is deterministic', () => {
-    const ptsA = poissonDisk2d(5, 60, 60, 8)
-    const ptsB = poissonDisk2d(5, 60, 60, 8)
+    const [ptsA, seedA] = poissonDisk2d(5, 60, 60, 8)
+    const [ptsB, seedB] = poissonDisk2d(5, 60, 60, 8)
     expect(ptsA.length).toBe(ptsB.length)
+    expect(seedA).toBe(seedB)
     ptsA.forEach((pa, i) => {
       expect(pa[0]).toBeCloseTo(ptsB[i][0], 5)
       expect(pa[1]).toBeCloseTo(ptsB[i][1], 5)
     })
   })
+
+  it('returns final seed', () => {
+    const [, seed] = poissonDisk2d(42, 100, 100, 10)
+    expect(typeof seed).toBe('number')
+    expect(seed).not.toBe(42)
+  })
 })
 
 // ── Cross-language parity ──────────────────────────────────────────────────────
 //
-// NOTE: TS prngNext uses Mulberry32-variant hash while Rust prng_next uses PCG.
-// They produce different values for the same seed — each is internally consistent.
+// NOTE: Both TS and Rust use identical Mulberry32 algorithm.
 // These tests verify TS-internal stability (regression guard) and structural contracts.
 
 describe('cross-language parity', () => {

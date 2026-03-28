@@ -38,7 +38,7 @@ prime/
 │   ├── prime-color/        # Oklab, sRGB, HSL/HSV, palette             ← stub
 │   ├── prime-splines/      # Bezier, Catmull-Rom, B-spline, slerp      ← stub
 │   ├── prime-signal/       # smoothdamp, spring, low_pass, deadzone    ← stub
-│   ├── prime-random/       # seeded PCG64 RNG, Poisson disk            ← stub
+│   ├── prime-random/       # Mulberry32 RNG, distributions, Bridson, MC, Halton  ← ACTIVE
 │   ├── prime-interp/       # easing, lerp, smoothstep                  ← stub
 │   ├── prime-osc/          # LFO shapes, ADSR envelope                 ← stub
 │   ├── prime-spatial/      # ray tests, AABB, frustum cull             ← stub
@@ -55,7 +55,7 @@ prime/
 
 ## Implementation priority order
 
-1. `prime-random` — everything depends on determinism
+1. `prime-random` — **implemented** (Mulberry32 PRNG, distributions, Bridson, Monte Carlo, quasi-random)
 2. `prime-interp` — easing/lerp (extracted from SCORE too)
 3. `prime-signal` — smoothdamp + spring (game feel foundation)
 4. `prime-sdf` — already implemented, migrate done ✓
@@ -91,8 +91,9 @@ ADVANCE ← move forward   reduce/fold over time steps
 4. **No side effects.** No printing, no I/O, no global state, no clocks.
 
 5. **prime-random: no classes, no mutable write head.**
-   The seed IS the RNG. `prngNext(seed) → [value, nextSeed]` threads state forward.
-   No class, no mutation anywhere.
+   The seed IS the RNG. `prng_next(seed) → (value, next_seed)` threads state forward.
+   No class, no mutation anywhere. Includes: distributions (Gaussian, exponential),
+   geometric sampling (disk, annulus), Monte Carlo integration, quasi-random sequences (Halton).
 
 6. **TypeScript: no `let` — use `const` only.** Production code AND tests.
    - Fold pattern: `Array.from({ length: N }).reduce((state) => step(state, dt), init)`
@@ -133,28 +134,17 @@ const [pos] = Array.from({ length: 200 }).reduce(
 
 ### Rustdoc — MANDATORY on every public function
 
-```rust
-/// One-line description.
-///
-/// # Math
-///   formula in plain ASCII math
-///
-/// # Arguments
-/// * `arg` - what it represents, valid range
-///
-/// # Returns
-/// What the return value means.
-///
-/// # Edge cases
-/// * edge → behavior
-///
-/// # Example
-/// ```rust
-/// // Happy path — concrete input/output pair
-/// ```
-```
+Every public function must have:
+- One-line description
+- Math formula (if non-obvious)
+- Doc test with concrete input/output
 
-No exceptions. The math documentation IS the product.
+Keep it concise. The math formula IS the documentation — don't restate
+what the type signature already says. Omit `# Arguments` / `# Returns`
+when they're obvious from the signature.
+
+Complex algorithms (Bridson, Monte Carlo) should include performance
+notes and edge case documentation.
 
 ### Testing — every public function needs:
 - outside test
@@ -212,6 +202,9 @@ cargo test --workspace
 
 # Test one crate
 cargo test -p prime-sdf
+
+# Benchmark one crate
+cargo bench -p prime-random
 
 # Clippy
 cargo clippy --workspace -- -D warnings
