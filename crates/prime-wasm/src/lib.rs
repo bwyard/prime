@@ -36,6 +36,20 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen] pub fn domain_warp_2d(x: f32, y: f32, octaves: u32, lacunarity: f32, gain: f32, warp_scale: f32) -> f32 { prime_noise::domain_warp_2d(x, y, octaves, lacunarity, gain, warp_scale) }
 #[wasm_bindgen] pub fn domain_warp_3d(x: f32, y: f32, z: f32, octaves: u32, lacunarity: f32, gain: f32, warp_scale: f32) -> f32 { prime_noise::domain_warp_3d(x, y, z, octaves, lacunarity, gain, warp_scale) }
 
+/// 2D curl noise. Returns `[cx, cy]`.
+#[wasm_bindgen]
+pub fn curl_2d(x: f32, y: f32, eps: f32) -> Box<[f32]> {
+    let (cx, cy) = prime_noise::curl_2d(x, y, eps);
+    vec![cx, cy].into_boxed_slice()
+}
+
+/// 3D curl noise. Returns `[cx, cy, cz]`.
+#[wasm_bindgen]
+pub fn curl_3d(x: f32, y: f32, z: f32, eps: f32) -> Box<[f32]> {
+    let (cx, cy, cz) = prime_noise::curl_3d(x, y, z, eps);
+    vec![cx, cy, cz].into_boxed_slice()
+}
+
 // ---------------------------------------------------------------------------
 // prime-interp
 // ---------------------------------------------------------------------------
@@ -79,6 +93,11 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen] pub fn ease_in_bounce(t: f32) -> f32 { prime_interp::ease_in_bounce(t) }
 #[wasm_bindgen] pub fn ease_out_bounce(t: f32) -> f32 { prime_interp::ease_out_bounce(t) }
 #[wasm_bindgen] pub fn ease_in_out_bounce(t: f32) -> f32 { prime_interp::ease_in_out_bounce(t) }
+#[wasm_bindgen] pub fn ease_in_back(t: f32) -> f32 { prime_interp::ease_in_back(t) }
+#[wasm_bindgen] pub fn ease_out_back(t: f32) -> f32 { prime_interp::ease_out_back(t) }
+#[wasm_bindgen] pub fn lerp_clamped(a: f32, b: f32, t: f32) -> f32 { prime_interp::lerp_clamped(a, b, t) }
+#[wasm_bindgen] pub fn repeat(t: f32, length: f32) -> f32 { prime_interp::repeat(t, length) }
+#[wasm_bindgen] pub fn pingpong(t: f32, length: f32) -> f32 { prime_interp::pingpong(t, length) }
 
 // ---------------------------------------------------------------------------
 // prime-color  (Oklab, sRGB, HSL)
@@ -131,6 +150,53 @@ pub fn srgb_to_hsl(r: f32, g: f32, b: f32) -> Box<[f32]> {
 pub fn oklab_mix(r0: f32, g0: f32, b0: f32, r1: f32, g1: f32, b1: f32, t: f32) -> Box<[f32]> {
     let (r, g, b) = prime_color::oklab_mix(r0, g0, b0, r1, g1, b1, t);
     vec![r, g, b].into_boxed_slice()
+}
+
+/// Convert sRGB to HSV. Returns `[h, s, v]`.
+#[wasm_bindgen]
+pub fn srgb_to_hsv(r: f32, g: f32, b: f32) -> Box<[f32]> {
+    let (h, s, v) = prime_color::srgb_to_hsv(r, g, b);
+    vec![h, s, v].into_boxed_slice()
+}
+
+/// Convert HSV to sRGB. Returns `[r, g, b]`.
+#[wasm_bindgen]
+pub fn hsv_to_srgb(h: f32, s: f32, v: f32) -> Box<[f32]> {
+    let (r, g, b) = prime_color::hsv_to_srgb(h, s, v);
+    vec![r, g, b].into_boxed_slice()
+}
+
+/// Relative luminance of an sRGB color (BT.709 coefficients).
+#[wasm_bindgen]
+pub fn luminance(r: f32, g: f32, b: f32) -> f32 {
+    prime_color::luminance(r, g, b)
+}
+
+/// WCAG contrast ratio between two sRGB colors.
+#[wasm_bindgen]
+pub fn contrast_ratio(r0: f32, g0: f32, b0: f32, r1: f32, g1: f32, b1: f32) -> f32 {
+    prime_color::contrast_ratio(r0, g0, b0, r1, g1, b1)
+}
+
+/// Complementary color in HSL space. Returns `[r, g, b]`.
+#[wasm_bindgen]
+pub fn palette_complementary(r: f32, g: f32, b: f32) -> Box<[f32]> {
+    let (cr, cg, cb) = prime_color::palette_complementary(r, g, b);
+    vec![cr, cg, cb].into_boxed_slice()
+}
+
+/// Triadic palette. Returns `[r1, g1, b1, r2, g2, b2]`.
+#[wasm_bindgen]
+pub fn palette_triadic(r: f32, g: f32, b: f32) -> Box<[f32]> {
+    let ((r1, g1, b1), (r2, g2, b2)) = prime_color::palette_triadic(r, g, b);
+    vec![r1, g1, b1, r2, g2, b2].into_boxed_slice()
+}
+
+/// Analogous palette. Returns `[r1, g1, b1, r2, g2, b2]`.
+#[wasm_bindgen]
+pub fn palette_analogous(r: f32, g: f32, b: f32) -> Box<[f32]> {
+    let ((r1, g1, b1), (r2, g2, b2)) = prime_color::palette_analogous(r, g, b);
+    vec![r1, g1, b1, r2, g2, b2].into_boxed_slice()
 }
 
 // ---------------------------------------------------------------------------
@@ -190,6 +256,58 @@ pub fn smoothdamp(current: f32, target: f32, velocity: f32, smooth_time: f32, de
 pub fn spring(value: f32, velocity: f32, target: f32, stiffness: f32, damping: f32, dt: f32) -> Box<[f32]> {
     let (v, vel) = prime_signal::spring(value, velocity, target, stiffness, damping, dt);
     vec![v, vel].into_boxed_slice()
+}
+
+/// Smoothdamp Vec2 step. Returns `[new_x, new_y, new_vel_x, new_vel_y]`.
+#[wasm_bindgen]
+pub fn smoothdamp_vec2(
+    cx: f32, cy: f32, tx: f32, ty: f32,
+    vx: f32, vy: f32, smooth_time: f32, dt: f32,
+) -> Box<[f32]> {
+    let (pos, vel) = prime_signal::smoothdamp_vec2(
+        glam::Vec2::new(cx, cy), glam::Vec2::new(tx, ty),
+        glam::Vec2::new(vx, vy), smooth_time, dt,
+    );
+    vec![pos.x, pos.y, vel.x, vel.y].into_boxed_slice()
+}
+
+/// Smoothdamp Vec3 step. Returns `[new_x, new_y, new_z, new_vel_x, new_vel_y, new_vel_z]`.
+#[wasm_bindgen]
+pub fn smoothdamp_vec3(
+    cx: f32, cy: f32, cz: f32, tx: f32, ty: f32, tz: f32,
+    vx: f32, vy: f32, vz: f32, smooth_time: f32, dt: f32,
+) -> Box<[f32]> {
+    let (pos, vel) = prime_signal::smoothdamp_vec3(
+        glam::Vec3::new(cx, cy, cz), glam::Vec3::new(tx, ty, tz),
+        glam::Vec3::new(vx, vy, vz), smooth_time, dt,
+    );
+    vec![pos.x, pos.y, pos.z, vel.x, vel.y, vel.z].into_boxed_slice()
+}
+
+/// Spring Vec2 step. Returns `[new_x, new_y, new_vel_x, new_vel_y]`.
+#[wasm_bindgen]
+pub fn spring_vec2(
+    px: f32, py: f32, vx: f32, vy: f32,
+    tx: f32, ty: f32, stiffness: f32, damping: f32, dt: f32,
+) -> Box<[f32]> {
+    let (pos, vel) = prime_signal::spring_vec2(
+        glam::Vec2::new(px, py), glam::Vec2::new(vx, vy),
+        glam::Vec2::new(tx, ty), stiffness, damping, dt,
+    );
+    vec![pos.x, pos.y, vel.x, vel.y].into_boxed_slice()
+}
+
+/// Spring Vec3 step. Returns `[new_x, new_y, new_z, new_vel_x, new_vel_y, new_vel_z]`.
+#[wasm_bindgen]
+pub fn spring_vec3(
+    px: f32, py: f32, pz: f32, vx: f32, vy: f32, vz: f32,
+    tx: f32, ty: f32, tz: f32, stiffness: f32, damping: f32, dt: f32,
+) -> Box<[f32]> {
+    let (pos, vel) = prime_signal::spring_vec3(
+        glam::Vec3::new(px, py, pz), glam::Vec3::new(vx, vy, vz),
+        glam::Vec3::new(tx, ty, tz), stiffness, damping, dt,
+    );
+    vec![pos.x, pos.y, pos.z, vel.x, vel.y, vel.z].into_boxed_slice()
 }
 
 /// One-pole low-pass filter. Returns new filtered value.
@@ -361,6 +479,12 @@ pub fn adsr_step(
 #[wasm_bindgen] pub fn catmull_rom(t: f32, p0: f32, p1: f32, p2: f32, p3: f32) -> f32 { prime_splines::catmull_rom(t, p0, p1, p2, p3) }
 #[wasm_bindgen] pub fn b_spline_cubic(t: f32, p0: f32, p1: f32, p2: f32, p3: f32) -> f32 { prime_splines::b_spline_cubic(t, p0, p1, p2, p3) }
 
+/// Approximate arc length of a cubic Bezier curve (scalar). Uses Gauss-Legendre quadrature.
+#[wasm_bindgen]
+pub fn bezier_cubic_arc_length(p0: f32, p1: f32, p2: f32, p3: f32, steps: u32) -> f32 {
+    prime_splines::bezier_cubic_arc_length(p0, p1, p2, p3, steps as usize)
+}
+
 /// Slerp for unit quaternions `(x, y, z, w)`. Returns `[x, y, z, w]`.
 #[wasm_bindgen]
 pub fn slerp(t: f32, q0x: f32, q0y: f32, q0z: f32, q0w: f32, q1x: f32, q1y: f32, q1z: f32, q1w: f32) -> Box<[f32]> {
@@ -403,12 +527,67 @@ pub fn euler_step_linear(state: f32, t: f32, dt: f32, k: f32) -> f32 {
     prime_dynamics::euler_step(state, t, dt, |_t, s| k * s)
 }
 
+/// Logistic map: `x_next = r * x * (1 - x)`.
+#[wasm_bindgen]
+pub fn logistic(x: f32, r: f32) -> f32 {
+    prime_dynamics::logistic(x, r)
+}
+
+/// Lotka-Volterra predator-prey step. Returns `[x, y]`.
+#[wasm_bindgen]
+pub fn lotka_volterra_step(x: f32, y: f32, alpha: f32, beta: f32, delta: f32, gamma: f32, dt: f32) -> Box<[f32]> {
+    let (x1, y1) = prime_dynamics::lotka_volterra_step(x, y, alpha, beta, delta, gamma, dt);
+    vec![x1, y1].into_boxed_slice()
+}
+
+/// SIR epidemic model step. Returns `[s, i, r]`.
+#[wasm_bindgen]
+pub fn sir_step(s: f32, i: f32, r: f32, beta: f32, gamma: f32, dt: f32) -> Box<[f32]> {
+    let (s1, i1, r1) = prime_dynamics::sir_step(s, i, r, beta, gamma, dt);
+    vec![s1, i1, r1].into_boxed_slice()
+}
+
+/// Gray-Scott reaction-diffusion step. Returns `[u, v]`.
+#[wasm_bindgen]
+pub fn gray_scott_step(u: f32, v: f32, laplacian_u: f32, laplacian_v: f32, f: f32, k: f32, dt: f32) -> Box<[f32]> {
+    let (u1, v1) = prime_dynamics::gray_scott_step(u, v, laplacian_u, laplacian_v, f, k, dt);
+    vec![u1, v1].into_boxed_slice()
+}
+
 // ---------------------------------------------------------------------------
 // prime-diffusion
 // ---------------------------------------------------------------------------
 
 #[wasm_bindgen] pub fn ou_step(x: f32, mu: f32, theta: f32, sigma: f32, dt: f32, w: f32) -> f32 { prime_diffusion::ou_step(x, mu, theta, sigma, dt, w) }
 #[wasm_bindgen] pub fn gbm_step(x: f32, mu: f32, sigma: f32, dt: f32, w: f32) -> f32 { prime_diffusion::gbm_step(x, mu, sigma, dt, w) }
+
+// ---------------------------------------------------------------------------
+// prime-spatial
+// ---------------------------------------------------------------------------
+
+/// Frustum cull an AABB against 6 planes. Each plane is `[nx, ny, nz, d]`.
+/// `planes_flat` is `[nx0, ny0, nz0, d0, nx1, ny1, nz1, d1, ..., nx5, ny5, nz5, d5]` (24 floats).
+/// Returns `1.0` if visible, `0.0` if culled.
+#[wasm_bindgen]
+pub fn frustum_cull_aabb(
+    min_x: f32, min_y: f32, min_z: f32,
+    max_x: f32, max_y: f32, max_z: f32,
+    planes_flat: &[f32],
+) -> f32 {
+    let planes: [(f32, f32, f32, f32); 6] = [
+        (planes_flat[0],  planes_flat[1],  planes_flat[2],  planes_flat[3]),
+        (planes_flat[4],  planes_flat[5],  planes_flat[6],  planes_flat[7]),
+        (planes_flat[8],  planes_flat[9],  planes_flat[10], planes_flat[11]),
+        (planes_flat[12], planes_flat[13], planes_flat[14], planes_flat[15]),
+        (planes_flat[16], planes_flat[17], planes_flat[18], planes_flat[19]),
+        (planes_flat[20], planes_flat[21], planes_flat[22], planes_flat[23]),
+    ];
+    if prime_spatial::frustum_cull_aabb((min_x, min_y, min_z), (max_x, max_y, max_z), &planes) {
+        1.0
+    } else {
+        0.0
+    }
+}
 
 // ---------------------------------------------------------------------------
 // prime-voronoi
