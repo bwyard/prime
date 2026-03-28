@@ -1225,4 +1225,152 @@ mod tests {
         assert!(density > 0.50, "density={density} ({} points), expected >50%", pts.len());
         assert!(density < 0.95, "density={density} — suspiciously high");
     }
+
+    // ── Production / academic-grade statistical tests ────────────────────────
+
+    #[test]
+    fn prng_next_serial_correlation() {
+        // Pearson correlation between consecutive values should be near 0
+        let n = 10000usize;
+        let (values, _) = (0..n).fold((vec![], 42u32), |(mut v, s), _| {
+            let (val, next) = prng_next(s);
+            v.push(val);
+            (v, next)
+        });
+        let mean: f32 = values.iter().sum::<f32>() / n as f32;
+        let var: f32 = values.iter().map(|v| (v - mean).powi(2)).sum::<f32>() / n as f32;
+        let cov: f32 = values.windows(2)
+            .map(|w| (w[0] - mean) * (w[1] - mean))
+            .sum::<f32>() / (n - 1) as f32;
+        let correlation = cov / var;
+        assert!(correlation.abs() < 0.03, "serial correlation={correlation}, expected near 0");
+    }
+
+    #[test]
+    fn prng_next_runs_test() {
+        // Count runs above/below median. Should be ~n/2 ± sqrt(n).
+        let n = 10000usize;
+        let (values, _) = (0..n).fold((vec![], 42u32), |(mut v, s), _| {
+            let (val, next) = prng_next(s);
+            v.push(val);
+            (v, next)
+        });
+        let median = 0.5_f32; // theoretical median of Uniform(0,1)
+        let above: Vec<bool> = values.iter().map(|&v| v > median).collect();
+        let runs = 1 + above.windows(2).filter(|w| w[0] != w[1]).count();
+        let n1 = above.iter().filter(|&&b| b).count() as f32;
+        let n2 = above.iter().filter(|&&b| !b).count() as f32;
+        let expected_runs = 1.0 + 2.0 * n1 * n2 / (n1 + n2);
+        let std_runs = ((2.0 * n1 * n2 * (2.0 * n1 * n2 - n1 - n2))
+            / ((n1 + n2).powi(2) * (n1 + n2 - 1.0))).sqrt();
+        let z = (runs as f32 - expected_runs) / std_runs;
+        // z should be in [-2.58, 2.58] at 99% confidence
+        assert!(z.abs() < 2.58, "runs z-score={z}, expected |z|<2.58");
+    }
+
+    #[test]
+    fn prng_next_multi_seed_uniformity() {
+        // First output from 10000 different seeds should be uniformly distributed
+        let n = 10000usize;
+        let bins = 10usize;
+        let counts = (0..n as u32).fold([0usize; 10], |mut acc, seed| {
+            let (v, _) = prng_next(seed);
+            let bin = (v * bins as f32).min((bins - 1) as f32) as usize;
+            acc[bin] += 1;
+            acc
+        });
+        let expected = n as f32 / bins as f32;
+        let chi_sq: f32 = counts.iter()
+            .map(|&c| (c as f32 - expected).powi(2) / expected)
+            .sum();
+        assert!(chi_sq < 21.67, "multi-seed chi_sq={chi_sq} — first values not uniform across seeds");
+    }
+
+    #[test]
+    fn disk_uniform_multi_radius_coverage() {
+        let n = 20000usize;
+        let radius = 10.0_f32;
+        // Test at r/4, r/2, 3r/4 — areas should be 6.25%, 25%, 56.25%
+        let (q1, q2, q3, _) = (0..n).fold((0usize, 0usize, 0usize, 1u32), |(c1, c2, c3, s), _| {
+            let (x, y, next) = prng_disk_uniform(s, radius);
+            let r = (x * x + y * y).sqrt();
+            (
+                c1 + if r < radius * 0.25 { 1 } else { 0 },
+                c2 + if r < radius * 0.5 { 1 } else { 0 },
+                c3 + if r < radius * 0.75 { 1 } else { 0 },
+                next,
+            )
+        });
+        let r1 = q1 as f32 / n as f32;
+        let r2 = q2 as f32 / n as f32;
+        let r3 = q3 as f32 / n as f32;
+        assert!((r1 - 0.0625).abs() < 0.02, "r/4 ratio={r1}, expected ~0.0625");
+        assert!((r2 - 0.25).abs() < 0.02, "r/2 ratio={r2}, expected ~0.25");
+        assert!((r3 - 0.5625).abs() < 0.02, "3r/4 ratio={r3}, expected ~0.5625");
+    }
+
+    #[test]
+    fn mc_1d_convergence_rate() {
+        // Error should decrease as O(1/sqrt(n)). Compare error at n=100 vs n=10000.
+        // Ratio of errors should be ~sqrt(100) = 10.
+        let true_value = 2.0_f32; // integral of sin(x) over [0, pi]
+        let (est_100, _) = monte_carlo_1d(42, |x| x.sin(), 0.0, PI, 100);
+        let (est_10k, _) = monte_carlo_1d(42, |x| x.sin(), 0.0, PI, 10000);
+        let err_100 = (est_100 - true_value).abs();
+        let err_10k = (est_10k - true_value).abs();
+        // 100x more samples should give ~10x less error
+        // Allow wide tolerance since single-run MC is noisy
+        assert!(err_10k < err_100, "10K should be more accurate than 100");
+        let improvement = err_100 / err_10k;
+        assert!(improvement > 3.0, "improvement ratio={improvement}, expected >3 for O(1/sqrt(n))");
+    }
+
+    #[test]
+    fn mc_stratified_convergence_rate_superiority() {
+        // Stratified at n=100 should be as accurate as plain MC at n=1000+
+        let true_value = 2.0_f32;
+        let (strat_100, _) = monte_carlo_1d_stratified(42, |x| x.sin(), 0.0, PI, 100);
+        let (plain_1000, _) = monte_carlo_1d(42, |x| x.sin(), 0.0, PI, 1000);
+        let strat_err = (strat_100 - true_value).abs();
+        let plain_err = (plain_1000 - true_value).abs();
+        // Stratified at n=100 should beat or match plain at n=1000
+        assert!(strat_err < plain_err * 2.0,
+            "strat_100 err={strat_err}, plain_1000 err={plain_err}");
+    }
+
+    #[test]
+    fn gaussian_anderson_darling() {
+        let n = 1000usize;
+        let mut samples: Vec<f32> = (0..n).fold((vec![], 42u32), |(mut v, s), _| {
+            let (g, next) = prng_gaussian(s);
+            v.push(g);
+            (v, next)
+        }).0;
+        samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        // Phi (standard normal CDF) — Abramowitz & Stegun rational approximation
+        let phi = |x: f32| -> f32 {
+            let x = x as f64;
+            let t = 1.0 / (1.0 + 0.2316419 * x.abs());
+            let d = 0.3989422804014327; // 1/sqrt(2*pi)
+            let p = d * (-x * x / 2.0).exp();
+            let poly = t * (0.319381530
+                + t * (-0.356563782
+                + t * (1.781477937
+                + t * (-1.821255978
+                + t * 1.330274429))));
+            let result = if x >= 0.0 { 1.0 - p * poly } else { p * poly };
+            result as f32
+        };
+        let a2: f32 = -(1..=n).map(|i| {
+            let p = phi(samples[i - 1]);
+            let q = phi(samples[n - i]);
+            let p = p.clamp(1e-10, 1.0 - 1e-10);
+            let q = q.clamp(1e-10, 1.0 - 1e-10);
+            (2 * i - 1) as f32 * (p.ln() + (1.0 - q).ln())
+        }).sum::<f32>() / n as f32 - n as f32;
+        // Adjusted statistic
+        let a2_star = a2 * (1.0 + 0.75 / n as f32 + 2.25 / (n * n) as f32);
+        // Critical value at p=0.01: 1.035
+        assert!(a2_star < 1.035, "A2*={a2_star} — Gaussian fails Anderson-Darling at p=0.01");
+    }
 }
