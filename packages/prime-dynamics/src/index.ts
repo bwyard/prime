@@ -569,3 +569,210 @@ export const duffingStep = (
     v0 + (dt / 6) * (k1v + 2 * k2v + 2 * k3v + k4v),
   ]
 }
+
+// ── Adaptive Simpson's quadrature ────────────────────────────────────────────
+
+/**
+ * Adaptive Simpson's quadrature — automatically refines subdivisions
+ * where the integrand varies rapidly.
+ *
+ * O(h^4) per panel. Subdivides until |S_fine - S_coarse| < 15 * tol,
+ * or maxDepth is reached.
+ *
+ * Math: S(a,b) = (b-a)/6 * (f(a) + 4*f(m) + f(b))
+ *
+ * @param f - integrand
+ * @param a - lower bound
+ * @param b - upper bound
+ * @param tol - error tolerance (e.g., 1e-6)
+ * @param maxDepth - maximum recursion depth (e.g., 20)
+ * @returns approximate integral
+ */
+export const integrateAdaptive = (
+  f: (x: number) => number,
+  a: number,
+  b: number,
+  tol: number,
+  maxDepth: number,
+): number => {
+  const simpson = (a: number, b: number): number => {
+    const m = (a + b) / 2
+    return ((b - a) / 6) * (f(a) + 4 * f(m) + f(b))
+  }
+
+  // ADVANCE-EXCEPTION: recursion depth bounded by maxDepth
+  const recurse = (
+    a: number,
+    b: number,
+    tol: number,
+    whole: number,
+    depth: number,
+  ): number => {
+    const m = (a + b) / 2
+    const left = simpson(a, m)
+    const right = simpson(m, b)
+    const refined = left + right
+    if (depth === 0 || Math.abs(refined - whole) < 15 * tol) {
+      return refined + (refined - whole) / 15 // Richardson extrapolation
+    }
+    const halfTol = tol / 2
+    return recurse(a, m, halfTol, left, depth - 1)
+      + recurse(m, b, halfTol, right, depth - 1)
+  }
+
+  const whole = simpson(a, b)
+  return recurse(a, b, tol, whole, maxDepth)
+}
+
+// ── Adaptive RK45 (Dormand-Prince) ODE solver ───────────────────────────────
+
+/**
+ * Dormand-Prince RK45 adaptive ODE solver.
+ *
+ * Automatically adjusts step size to maintain error within tolerance.
+ * Uses two RK evaluations (4th and 5th order) to estimate local error.
+ *
+ * @param state - initial state
+ * @param t0 - start time
+ * @param tEnd - end time
+ * @param dtInitial - initial step size guess
+ * @param tol - error tolerance per step
+ * @param f - ODE right-hand side: dy/dt = f(t, y)
+ * @returns [finalState, finalTime, stepsTaken]
+ */
+export const rk45Adaptive = (
+  state: number,
+  t0: number,
+  tEnd: number,
+  dtInitial: number,
+  tol: number,
+  f: (t: number, y: number) => number,
+): [number, number, number] => {
+  // Dormand-Prince coefficients
+  const a2 = 1 / 5, a3 = 3 / 10, a4 = 4 / 5, a5 = 8 / 9
+  const b21 = 1 / 5
+  const b31 = 3 / 40, b32 = 9 / 40
+  const b41 = 44 / 45, b42 = -56 / 15, b43 = 32 / 9
+  const b51 = 19372 / 6561, b52 = -25360 / 2187, b53 = 64448 / 6561, b54 = -212 / 729
+  const b61 = 9017 / 3168, b62 = -355 / 33, b63 = 46732 / 5247, b64 = 49 / 176, b65 = -5103 / 18656
+
+  // 5th order weights
+  const c1 = 35 / 384, c3 = 500 / 1113, c4 = 125 / 192, c5 = -2187 / 6784, c6 = 11 / 84
+  // 4th order weights
+  const d1 = 5179 / 57600, d3 = 7571 / 16695, d4 = 393 / 640, d5 = -92097 / 339200, d6 = 187 / 2100, d7 = 1 / 40
+
+  // ADVANCE-EXCEPTION: adaptive step loop with bounded iteration
+  let y = state
+  let t = t0
+  let dt = dtInitial
+  let steps = 0
+  const maxSteps = 100_000
+
+  while (t < tEnd && steps < maxSteps) {
+    const dtActual = Math.min(dt, tEnd - t)
+
+    const k1 = f(t, y)
+    const k2 = f(t + a2 * dtActual, y + dtActual * b21 * k1)
+    const k3 = f(t + a3 * dtActual, y + dtActual * (b31 * k1 + b32 * k2))
+    const k4 = f(t + a4 * dtActual, y + dtActual * (b41 * k1 + b42 * k2 + b43 * k3))
+    const k5 = f(t + a5 * dtActual, y + dtActual * (b51 * k1 + b52 * k2 + b53 * k3 + b54 * k4))
+    const k6 = f(t + dtActual, y + dtActual * (b61 * k1 + b62 * k2 + b63 * k3 + b64 * k4 + b65 * k5))
+
+    const y5 = y + dtActual * (c1 * k1 + c3 * k3 + c4 * k4 + c5 * k5 + c6 * k6)
+
+    const k7 = f(t + dtActual, y5)
+    const y4 = y + dtActual * (d1 * k1 + d3 * k3 + d4 * k4 + d5 * k5 + d6 * k6 + d7 * k7)
+
+    const error = Math.abs(y5 - y4)
+
+    if (error <= tol || dtActual <= 1e-10) {
+      y = y5
+      t += dtActual
+      steps += 1
+    }
+
+    if (error > 0) {
+      const factor = 0.9 * Math.pow(tol / error, 0.2)
+      dt = dtActual * Math.max(0.1, Math.min(5.0, factor))
+    }
+  }
+
+  return [y, t, steps]
+}
+
+// ── Newton-Raphson root finding ──────────────────────────────────────────────
+
+/**
+ * Newton-Raphson root finding. Finds x where f(x) ≈ 0.
+ *
+ * Uses numerical derivative (central difference) for the Jacobian.
+ *
+ * @param f - function to find root of
+ * @param x0 - initial guess
+ * @param tol - convergence tolerance
+ * @param maxIter - maximum iterations
+ * @returns [root, iterations]
+ */
+export const newtonRaphson = (
+  f: (x: number) => number,
+  x0: number,
+  tol: number,
+  maxIter: number,
+): [number, number] => {
+  const h = 1e-5
+  // ADVANCE-EXCEPTION: convergence loop with bounded iteration
+  let x = x0
+  for (let i = 0; i < maxIter; i++) {
+    const fx = f(x)
+    if (Math.abs(fx) < tol) {
+      return [x, i]
+    }
+    const dfx = (f(x + h) - f(x - h)) / (2 * h)
+    if (Math.abs(dfx) < 1e-12) {
+      return [x, i]
+    }
+    x -= fx / dfx
+  }
+  return [x, maxIter]
+}
+
+// ── Bisection root finding ───────────────────────────────────────────────────
+
+/**
+ * Bisection root finding. Guaranteed convergence for continuous f with f(a)*f(b) < 0.
+ *
+ * Slower than Newton but always converges. O(log((b-a)/tol)) iterations.
+ *
+ * @param f - function to find root of
+ * @param a - lower bracket
+ * @param b - upper bracket
+ * @param tol - convergence tolerance
+ * @param maxIter - maximum iterations
+ * @returns [root, iterations]
+ */
+export const bisection = (
+  f: (x: number) => number,
+  a: number,
+  b: number,
+  tol: number,
+  maxIter: number,
+): [number, number] => {
+  // ADVANCE-EXCEPTION: convergence loop
+  let lo = a
+  let hi = b
+  let fLo = f(lo)
+  for (let i = 0; i < maxIter; i++) {
+    const mid = (lo + hi) / 2
+    const fMid = f(mid)
+    if (Math.abs(fMid) < tol || (hi - lo) < tol) {
+      return [mid, i]
+    }
+    if (fLo * fMid < 0) {
+      hi = mid
+    } else {
+      lo = mid
+      fLo = fMid
+    }
+  }
+  return [(lo + hi) / 2, maxIter]
+}

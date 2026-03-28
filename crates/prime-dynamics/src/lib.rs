@@ -549,6 +549,260 @@ pub fn van_der_pol_step(x: f32, v: f32, mu: f32, dt: f32) -> (f32, f32) {
     )
 }
 
+// ── Adaptive Simpson's quadrature ────────────────────────────────────────────
+
+/// Adaptive Simpson's quadrature — automatically refines subdivisions
+/// where the integrand varies rapidly.
+///
+/// O(h^4) per panel. Subdivides until |S_fine - S_coarse| < 15 * tol,
+/// or max_depth is reached.
+///
+/// # Arguments
+/// * `f` - Integrand
+/// * `a`, `b` - Integration bounds
+/// * `tol` - Error tolerance (e.g., 1e-6)
+/// * `max_depth` - Maximum recursion depth (e.g., 20)
+///
+/// # Math
+/// Uses the 3-point Simpson estimate S(a,b) = (b-a)/6 * (f(a) + 4*f(m) + f(b))
+/// and compares against S(a,m) + S(m,b). Subdivides when they disagree.
+/// ```rust
+/// # use prime_dynamics::integrate_adaptive;
+/// let area = integrate_adaptive(|x| x.sin(), 0.0, std::f32::consts::PI, 1e-6, 20);
+/// assert!((area - 2.0).abs() < 1e-5);
+/// ```
+pub fn integrate_adaptive(
+    f: fn(f32) -> f32,
+    a: f32,
+    b: f32,
+    tol: f32,
+    max_depth: u32,
+) -> f32 {
+    fn simpson(f: fn(f32) -> f32, a: f32, b: f32) -> f32 {
+        let m = (a + b) / 2.0;
+        (b - a) / 6.0 * (f(a) + 4.0 * f(m) + f(b))
+    }
+
+    // ADVANCE-EXCEPTION: recursion depth is bounded by max_depth
+    fn recurse(
+        f: fn(f32) -> f32,
+        a: f32,
+        b: f32,
+        tol: f32,
+        whole: f32,
+        depth: u32,
+    ) -> f32 {
+        let m = (a + b) / 2.0;
+        let left = simpson(f, a, m);
+        let right = simpson(f, m, b);
+        let refined = left + right;
+        if depth == 0 || (refined - whole).abs() < 15.0 * tol {
+            refined + (refined - whole) / 15.0 // Richardson extrapolation
+        } else {
+            let half_tol = tol / 2.0;
+            recurse(f, a, m, half_tol, left, depth - 1)
+                + recurse(f, m, b, half_tol, right, depth - 1)
+        }
+    }
+
+    let whole = simpson(f, a, b);
+    recurse(f, a, b, tol, whole, max_depth)
+}
+
+// ── Adaptive RK45 (Dormand-Prince) ODE solver ──────────────────────────────
+
+/// Dormand-Prince RK45 adaptive ODE solver.
+///
+/// Automatically adjusts step size to maintain error within tolerance.
+/// Uses two RK evaluations (4th and 5th order) to estimate local error.
+///
+/// # Arguments
+/// * `state` - Initial state
+/// * `t0` - Start time
+/// * `t_end` - End time
+/// * `dt_initial` - Initial step size guess
+/// * `tol` - Error tolerance per step
+/// * `f` - ODE right-hand side: dy/dt = f(t, y)
+///
+/// # Returns
+/// `(final_state, final_time, steps_taken)` — state at t_end with step count.
+/// ```rust
+/// # use prime_dynamics::rk45_adaptive;
+/// // dy/dt = -y, exact solution y = exp(-t)
+/// let (y, t, steps) = rk45_adaptive(1.0, 0.0, 1.0, 0.1, 1e-6, |_t, y| -y);
+/// assert!((y - (-1.0_f32).exp()).abs() < 1e-4);
+/// assert!((t - 1.0).abs() < 1e-6);
+/// assert!(steps > 0);
+/// ```
+pub fn rk45_adaptive(
+    state: f32,
+    t0: f32,
+    t_end: f32,
+    dt_initial: f32,
+    tol: f32,
+    f: impl Fn(f32, f32) -> f32,
+) -> (f32, f32, u32) {
+    // Dormand-Prince coefficients (Butcher tableau)
+    let a2 = 1.0 / 5.0;
+    let a3 = 3.0 / 10.0;
+    let a4 = 4.0 / 5.0;
+    let a5 = 8.0 / 9.0;
+
+    let b21 = 1.0 / 5.0;
+    let b31 = 3.0 / 40.0;
+    let b32 = 9.0 / 40.0;
+    let b41 = 44.0 / 45.0;
+    let b42 = -56.0 / 15.0;
+    let b43 = 32.0 / 9.0;
+    let b51 = 19372.0 / 6561.0;
+    let b52 = -25360.0 / 2187.0;
+    let b53 = 64448.0 / 6561.0;
+    let b54 = -212.0 / 729.0;
+    let b61 = 9017.0 / 3168.0;
+    let b62 = -355.0 / 33.0;
+    let b63 = 46732.0 / 5247.0;
+    let b64 = 49.0 / 176.0;
+    let b65 = -5103.0 / 18656.0;
+
+    // 5th order weights
+    let c1 = 35.0 / 384.0;
+    let c3 = 500.0 / 1113.0;
+    let c4 = 125.0 / 192.0;
+    let c5 = -2187.0 / 6784.0;
+    let c6 = 11.0 / 84.0;
+
+    // 4th order weights (for error estimate)
+    let d1 = 5179.0 / 57600.0;
+    let d3 = 7571.0 / 16695.0;
+    let d4 = 393.0 / 640.0;
+    let d5 = -92097.0 / 339200.0;
+    let d6 = 187.0 / 2100.0;
+    let d7 = 1.0 / 40.0;
+
+    // ADVANCE-EXCEPTION: adaptive step loop with bounded iteration
+    let mut y = state;
+    let mut t = t0;
+    let mut dt = dt_initial;
+    let mut steps = 0u32;
+    let max_steps = 100_000u32;
+
+    while t < t_end && steps < max_steps {
+        let dt_actual = dt.min(t_end - t);
+
+        let k1 = f(t, y);
+        let k2 = f(t + a2 * dt_actual, y + dt_actual * b21 * k1);
+        let k3 = f(
+            t + a3 * dt_actual,
+            y + dt_actual * (b31 * k1 + b32 * k2),
+        );
+        let k4 = f(
+            t + a4 * dt_actual,
+            y + dt_actual * (b41 * k1 + b42 * k2 + b43 * k3),
+        );
+        let k5 = f(
+            t + a5 * dt_actual,
+            y + dt_actual * (b51 * k1 + b52 * k2 + b53 * k3 + b54 * k4),
+        );
+        let k6 = f(
+            t + dt_actual,
+            y + dt_actual * (b61 * k1 + b62 * k2 + b63 * k3 + b64 * k4 + b65 * k5),
+        );
+
+        // 5th order solution
+        let y5 = y + dt_actual * (c1 * k1 + c3 * k3 + c4 * k4 + c5 * k5 + c6 * k6);
+
+        // 4th order solution (for error estimate)
+        let k7 = f(t + dt_actual, y5);
+        let y4 =
+            y + dt_actual * (d1 * k1 + d3 * k3 + d4 * k4 + d5 * k5 + d6 * k6 + d7 * k7);
+
+        let error = (y5 - y4).abs();
+
+        if error <= tol || dt_actual <= 1e-10 {
+            // Accept step
+            y = y5;
+            t += dt_actual;
+            steps += 1;
+        }
+
+        // Adjust step size
+        if error > 0.0 {
+            let factor = 0.9 * (tol / error).powf(0.2);
+            dt = dt_actual * factor.clamp(0.1, 5.0);
+        }
+    }
+
+    (y, t, steps)
+}
+
+// ── Newton-Raphson root finding ─────────────────────────────────────────────
+
+/// Newton-Raphson root finding. Finds x where f(x) ≈ 0.
+///
+/// Uses numerical derivative (central difference) for the Jacobian.
+///
+/// # Arguments
+/// * `f` - Function to find root of
+/// * `x0` - Initial guess
+/// * `tol` - Convergence tolerance
+/// * `max_iter` - Maximum iterations
+///
+/// # Returns
+/// `(root, iterations)` — the root and how many steps it took.
+/// ```rust
+/// # use prime_dynamics::newton_raphson;
+/// let (root, _iters) = newton_raphson(|x| x * x - 2.0, 1.0, 1e-6, 50);
+/// assert!((root - std::f32::consts::SQRT_2).abs() < 1e-5);
+/// ```
+pub fn newton_raphson(f: fn(f32) -> f32, x0: f32, tol: f32, max_iter: u32) -> (f32, u32) {
+    let h = 1e-5_f32;
+    // ADVANCE-EXCEPTION: convergence loop with bounded iteration
+    let mut x = x0;
+    for i in 0..max_iter {
+        let fx = f(x);
+        if fx.abs() < tol {
+            return (x, i);
+        }
+        let dfx = (f(x + h) - f(x - h)) / (2.0 * h);
+        if dfx.abs() < 1e-12 {
+            return (x, i); // derivative too small, return best guess
+        }
+        x -= fx / dfx;
+    }
+    (x, max_iter)
+}
+
+// ── Bisection root finding ──────────────────────────────────────────────────
+
+/// Bisection root finding. Guaranteed convergence for continuous f with f(a)*f(b) < 0.
+///
+/// Slower than Newton but always converges. O(log((b-a)/tol)) iterations.
+/// ```rust
+/// # use prime_dynamics::bisection;
+/// let (root, _iters) = bisection(|x| x * x - 2.0, 1.0, 2.0, 1e-6, 100);
+/// assert!((root - std::f32::consts::SQRT_2).abs() < 1e-5);
+/// ```
+pub fn bisection(f: fn(f32) -> f32, a: f32, b: f32, tol: f32, max_iter: u32) -> (f32, u32) {
+    // ADVANCE-EXCEPTION: convergence loop
+    let mut lo = a;
+    let mut hi = b;
+    let mut f_lo = f(lo);
+    for i in 0..max_iter {
+        let mid = (lo + hi) / 2.0;
+        let f_mid = f(mid);
+        if f_mid.abs() < tol || (hi - lo) < tol {
+            return (mid, i);
+        }
+        if f_lo * f_mid < 0.0 {
+            hi = mid;
+        } else {
+            lo = mid;
+            f_lo = f_mid;
+        }
+    }
+    ((lo + hi) / 2.0, max_iter)
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -994,5 +1248,142 @@ mod tests {
         let a = van_der_pol_step(1.0, 0.0, 1.0, 0.01);
         let b = van_der_pol_step(1.0, 0.0, 1.0, 0.01);
         assert_eq!(a, b);
+    }
+
+    // ── integrate_adaptive ──────────────────────────────────────────────────
+
+    #[test]
+    fn adaptive_sin_over_pi() {
+        let area = integrate_adaptive(|x| x.sin(), 0.0, std::f32::consts::PI, 1e-6, 20);
+        assert!((area - 2.0).abs() < 1e-5, "area={area}");
+    }
+
+    #[test]
+    fn adaptive_x_squared() {
+        let area = integrate_adaptive(|x| x * x, 0.0, 1.0, 1e-6, 20);
+        assert!((area - 1.0 / 3.0).abs() < 1e-5, "area={area}");
+    }
+
+    #[test]
+    fn adaptive_more_accurate_than_fixed_simpson() {
+        // Integrate a rapidly varying function where adaptive should shine
+        let f: fn(f32) -> f32 = |x| (10.0 * x).sin();
+        let true_val = (1.0 - (10.0_f32).cos()) / 10.0;
+        let adaptive = integrate_adaptive(f, 0.0, 1.0, 1e-6, 20);
+        let fixed = integrate_simpson(f, 0.0, 1.0, 10); // same low panel count
+        assert!(
+            (adaptive - true_val).abs() < (fixed - true_val).abs(),
+            "adaptive={adaptive} fixed={fixed} true={true_val}"
+        );
+    }
+
+    #[test]
+    fn adaptive_constant_function() {
+        let area = integrate_adaptive(|_| 5.0, 0.0, 3.0, 1e-6, 20);
+        assert!((area - 15.0).abs() < 1e-4, "area={area}");
+    }
+
+    #[test]
+    fn adaptive_deterministic() {
+        let a = integrate_adaptive(|x| x.sin(), 0.0, 1.0, 1e-6, 20);
+        let b = integrate_adaptive(|x| x.sin(), 0.0, 1.0, 1e-6, 20);
+        assert!((a - b).abs() < EPSILON);
+    }
+
+    // ── rk45_adaptive ───────────────────────────────────────────────────────
+
+    #[test]
+    fn rk45_exponential_decay() {
+        let (y, t, steps) = rk45_adaptive(1.0, 0.0, 1.0, 0.1, 1e-6, |_t, y| -y);
+        assert!((y - (-1.0_f32).exp()).abs() < 1e-4, "y={y}");
+        assert!((t - 1.0).abs() < 1e-6, "t={t}");
+        assert!(steps > 0, "steps={steps}");
+    }
+
+    #[test]
+    fn rk45_linear_ode() {
+        // dy/dt = 1 → y = t + y0
+        let (y, t, _) = rk45_adaptive(0.0, 0.0, 2.0, 0.1, 1e-6, |_t, _y| 1.0);
+        assert!((y - 2.0).abs() < 1e-4, "y={y}");
+        assert!((t - 2.0).abs() < 1e-6, "t={t}");
+    }
+
+    #[test]
+    fn rk45_reasonable_step_count() {
+        // For a smooth ODE, should not take an absurd number of steps
+        let (_, _, steps) = rk45_adaptive(1.0, 0.0, 1.0, 0.1, 1e-6, |_t, y| -y);
+        assert!(steps < 1000, "steps={steps} — too many for smooth ODE");
+    }
+
+    #[test]
+    fn rk45_deterministic() {
+        let a = rk45_adaptive(1.0, 0.0, 1.0, 0.1, 1e-6, |_t, y| -y);
+        let b = rk45_adaptive(1.0, 0.0, 1.0, 0.1, 1e-6, |_t, y| -y);
+        assert!((a.0 - b.0).abs() < EPSILON);
+        assert_eq!(a.2, b.2);
+    }
+
+    // ── newton_raphson ──────────────────────────────────────────────────────
+
+    #[test]
+    fn newton_sqrt2() {
+        let (root, iters) = newton_raphson(|x| x * x - 2.0, 1.0, 1e-6, 50);
+        assert!((root - std::f32::consts::SQRT_2).abs() < 1e-5, "root={root}");
+        assert!(iters < 20, "iters={iters}");
+    }
+
+    #[test]
+    fn newton_cube_root() {
+        let (root, _) = newton_raphson(|x| x * x * x - 8.0, 1.0, 1e-6, 50);
+        assert!((root - 2.0).abs() < 1e-4, "root={root}");
+    }
+
+    #[test]
+    fn newton_converges_fast() {
+        // Quadratic convergence — should find sqrt(2) in very few iterations
+        let (_, iters) = newton_raphson(|x| x * x - 2.0, 1.0, 1e-6, 50);
+        assert!(iters <= 10, "iters={iters} — Newton should converge fast");
+    }
+
+    #[test]
+    fn newton_deterministic() {
+        let a = newton_raphson(|x| x * x - 2.0, 1.0, 1e-6, 50);
+        let b = newton_raphson(|x| x * x - 2.0, 1.0, 1e-6, 50);
+        assert!((a.0 - b.0).abs() < EPSILON);
+        assert_eq!(a.1, b.1);
+    }
+
+    // ── bisection ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn bisection_sqrt2() {
+        let (root, _) = bisection(|x| x * x - 2.0, 1.0, 2.0, 1e-6, 100);
+        assert!((root - std::f32::consts::SQRT_2).abs() < 1e-5, "root={root}");
+    }
+
+    #[test]
+    fn bisection_guaranteed_convergence() {
+        // Bisection always converges if bracket is valid
+        let (root, iters) = bisection(|x| x * x - 2.0, 0.0, 10.0, 1e-6, 100);
+        assert!((root - std::f32::consts::SQRT_2).abs() < 1e-5, "root={root}");
+        assert!(iters < 100, "iters={iters}");
+    }
+
+    #[test]
+    fn bisection_cos_root() {
+        // cos(x) = 0 in [1, 2] → x = π/2
+        let (root, _) = bisection(|x| x.cos(), 1.0, 2.0, 1e-6, 100);
+        assert!(
+            (root - std::f32::consts::FRAC_PI_2).abs() < 1e-5,
+            "root={root}"
+        );
+    }
+
+    #[test]
+    fn bisection_deterministic() {
+        let a = bisection(|x| x * x - 2.0, 1.0, 2.0, 1e-6, 100);
+        let b = bisection(|x| x * x - 2.0, 1.0, 2.0, 1e-6, 100);
+        assert!((a.0 - b.0).abs() < EPSILON);
+        assert_eq!(a.1, b.1);
     }
 }
