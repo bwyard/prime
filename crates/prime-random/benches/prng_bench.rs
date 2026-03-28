@@ -1,4 +1,5 @@
-use criterion::{criterion_group, criterion_main, Criterion, black_box};
+use criterion::{criterion_group, criterion_main, Criterion};
+use std::hint::black_box;
 use prime_random::*;
 
 fn bench_prng_next(c: &mut Criterion) {

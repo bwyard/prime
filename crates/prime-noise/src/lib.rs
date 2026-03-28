@@ -674,11 +674,9 @@ pub fn simplex_3d(x: f32, y: f32, z: f32) -> f32 {
         if y0 >= z0      { (1, 0, 0,  1, 1, 0) }
         else if x0 >= z0 { (1, 0, 0,  1, 0, 1) }
         else             { (0, 0, 1,  1, 0, 1) }
-    } else {
-        if y0 < z0       { (0, 0, 1,  0, 1, 1) }
-        else if x0 < z0  { (0, 1, 0,  0, 1, 1) }
-        else             { (0, 1, 0,  1, 1, 0) }
-    };
+    } else if y0 < z0       { (0, 0, 1,  0, 1, 1) }
+      else if x0 < z0  { (0, 1, 0,  0, 1, 1) }
+      else             { (0, 1, 0,  1, 1, 0) };
 
     let x1 = x0 - i1 as f32 + SIMPLEX_G3;
     let y1 = y0 - j1 as f32 + SIMPLEX_G3;

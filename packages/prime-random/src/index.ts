@@ -429,6 +429,52 @@ export const monteCarlo1dWithVariance = (
   return [mean * width, n > 1 ? (m2 / (n - 1)) * width * width : 0, finalSeed]
 }
 
+// ── Pure iterator utility ──────────────────────────────────────────────────
+
+/**
+ * Pure state-machine iterator — mirrors Rust's `std::iter::successors`.
+ *
+ * Repeatedly applies `step` to produce the next state until `step` returns
+ * `null`, then returns the final state. This is the TypeScript equivalent of
+ * Rust's `successors(Some(init), f).last().unwrap()`.
+ *
+ * ADVANCE-EXCEPTION: This utility contains the only `let` + `while` in the
+ * codebase. The exception is necessary because:
+ *
+ * 1. **Data-dependent termination** — algorithms like Bridson's Poisson disk
+ *    sampling terminate when the active list empties. The step count is not
+ *    known in advance, so `Array.from({ length: N }).reduce(...)` would
+ *    require guessing an upper bound and wasting O(N) no-op iterations.
+ *
+ * 2. **Stack overflow risk** — tail recursion (`const go = (s) => step(s)
+ *    === null ? s : go(step(s))`) is elegant but JavaScript engines do not
+ *    guarantee TCO. Bridson on a 500×500 domain with minDist=2 can produce
+ *    50,000+ steps, which exceeds typical call stack limits.
+ *
+ * 3. **Encapsulated mutation** — the `let` rebinding is local to this
+ *    utility. The step function and all callers remain pure `const`. No
+ *    external state is mutated. From the caller's perspective this is a
+ *    pure function: same `init` + same `step` = same result, always.
+ *
+ * 4. **Thesis alignment** — the Temporal Assembly model requires that state
+ *    flows forward through return values. This utility preserves that: each
+ *    call to `step` receives the previous state and returns a new one. The
+ *    `let` is a loop variable, not shared mutable state.
+ *
+ * @param init - Initial state
+ * @param step - Pure state transition; return `null` to terminate
+ * @returns The final state after `step` returns `null`
+ */
+const successors = <T>(init: T, step: (state: T) => T | null): T => {
+  // ADVANCE-EXCEPTION: see detailed rationale above
+  let state = init
+  while (true) {
+    const next = step(state)
+    if (next === null) return state
+    state = next
+  }
+}
+
 // ── Pure Bridson ────────────────────────────────────────────────────────────
 
 type BridsonParams = {
@@ -559,11 +605,10 @@ export const poissonDisk2d = (
     seed: s2,
   }
 
-  // ADVANCE-EXCEPTION: Bridson active-list termination is data-dependent
-  let state: BridsonState = initial
-  while (state.active.length > 0) {
-    state = bridsonStep(state, p)
-  }
+  // Pure: successors mirrors Rust's std::iter::successors — no let in domain logic
+  const finalState = successors(initial, (state) =>
+    state.active.length === 0 ? null : bridsonStep(state, p),
+  )
 
-  return [[...state.points], state.seed]
+  return [[...finalState.points], finalState.seed]
 }
