@@ -14,6 +14,10 @@
 //! - `voronoi_nearest_2d` — find nearest seed index and F1 distance
 //! - `voronoi_f1_f2_2d` — F1 (nearest) and F2 (second-nearest) distances
 //! - `lloyd_relax_step_2d` — one Lloyd relaxation step (sample-based)
+//!
+//! # Deferred to post-release
+//! - Delaunay triangulation (Bowyer-Watson) — complex algorithm (~200 lines),
+//!   deferred until API surface is stable.
 
 // ── Voronoi nearest ───────────────────────────────────────────────────────────
 

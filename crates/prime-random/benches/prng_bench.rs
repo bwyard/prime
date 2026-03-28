@@ -45,6 +45,16 @@ fn bench_monte_carlo_convergence(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_monte_carlo_stratified(c: &mut Criterion) {
+    let mut group = c.benchmark_group("monte_carlo_1d_stratified");
+    for n in [100, 1_000, 10_000] {
+        group.bench_function(format!("n={n}"), |b| {
+            b.iter(|| monte_carlo_1d_stratified(black_box(42), |x| x.sin(), 0.0, std::f32::consts::PI, n))
+        });
+    }
+    group.finish();
+}
+
 fn bench_van_der_corput(c: &mut Criterion) {
     c.bench_function("van_der_corput_1000", |b| {
         b.iter(|| {
@@ -78,6 +88,7 @@ criterion_group!(
     bench_prng_gaussian,
     bench_poisson_disk_2d,
     bench_monte_carlo_convergence,
+    bench_monte_carlo_stratified,
     bench_van_der_corput,
     bench_weighted_choice,
     bench_halton_2d,

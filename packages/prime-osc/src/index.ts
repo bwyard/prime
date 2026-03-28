@@ -54,6 +54,20 @@ export const lfoSawtooth = (phase: number): number => {
 }
 
 /**
+ * Cosine wave at normalised phase.
+ *
+ * @remarks y = cos(phase x 2pi)
+ * @param phase - Normalised phase in [0, 1). Wraps automatically.
+ * @returns Value in [-1, 1].
+ *
+ * @example
+ * lfoCosine(0.0) // 1.0
+ * lfoCosine(0.5) // -1.0
+ */
+export const lfoCosine = (phase: number): number =>
+  Math.cos(phase * Math.PI * 2)
+
+/**
  * Square wave at normalised phase.
  *
  * @remarks

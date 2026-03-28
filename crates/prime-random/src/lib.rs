@@ -299,6 +299,30 @@ pub fn monte_carlo_2d(
     (area * sum / n as f32, final_seed)
 }
 
+/// 1D stratified Monte Carlo — divides [a, b] into n equal strata, samples one point per stratum.
+///
+/// Converges at O(1/n) for smooth functions vs O(1/√n) for plain MC.
+/// ```rust
+/// # use prime_random::monte_carlo_1d_stratified;
+/// let (est, _s) = monte_carlo_1d_stratified(42, |x| x.sin(), 0.0, std::f32::consts::PI, 100);
+/// assert!((est - 2.0).abs() < 0.01);
+/// ```
+pub fn monte_carlo_1d_stratified(
+    seed: u32,
+    f: fn(f32) -> f32,
+    a: f32, b: f32,
+    n: usize,
+) -> (f32, u32) {
+    let width = b - a;
+    let stratum = width / n as f32;
+    let (sum, final_seed) = (0..n).fold((0.0_f32, seed), |(acc, s), i| {
+        let (u, next) = prng_next(s);
+        let x = a + (i as f32 + u) * stratum;
+        (acc + f(x), next)
+    });
+    (width * sum / n as f32, final_seed)
+}
+
 /// 1D Monte Carlo with Welford's online variance estimate.
 ///
 /// `estimate = mean(f(x_i)) * (b - a)`, variance via numerically stable running sum.
@@ -400,19 +424,29 @@ fn bridson_step(state: &BridsonState, p: &BridsonParams) -> BridsonState {
 
     if let Some((cx, cy)) = candidate {
         let cell_idx = (cy / p.cell_size) as usize * p.cols + (cx / p.cell_size) as usize;
-        let mut new_grid = state.grid.clone();
-        new_grid[cell_idx] = Some((cx, cy));
-        let mut new_active = state.active.clone();
-        new_active.push(state.points.len());
-        let mut new_points = state.points.clone();
-        new_points.push((cx, cy));
-        BridsonState { grid: new_grid, active: new_active, points: new_points, seed: final_seed }
+        let new_pt_idx = state.points.len();
+        BridsonState {
+            grid: state.grid.iter().enumerate()
+                .map(|(i, v)| if i == cell_idx { Some((cx, cy)) } else { *v })
+                .collect(),
+            active: state.active.iter().copied()
+                .chain(std::iter::once(new_pt_idx))
+                .collect(),
+            points: state.points.iter().copied()
+                .chain(std::iter::once((cx, cy)))
+                .collect(),
+            seed: final_seed,
+        }
     } else {
-        let new_active: Vec<usize> = state.active.iter().enumerate()
-            .filter(|(i, _)| *i != ai)
-            .map(|(_, &v)| v)
-            .collect();
-        BridsonState { grid: state.grid.clone(), active: new_active, points: state.points.clone(), seed: final_seed }
+        BridsonState {
+            grid: state.grid.clone(),
+            active: state.active.iter().enumerate()
+                .filter(|(i, _)| *i != ai)
+                .map(|(_, &v)| v)
+                .collect(),
+            points: state.points.clone(),
+            seed: final_seed,
+        }
     }
 }
 
@@ -855,6 +889,33 @@ mod tests {
     fn mc_1d_deterministic() {
         let a = monte_carlo_1d(42, |x| x.sin(), 0.0, PI, 100);
         let b = monte_carlo_1d(42, |x| x.sin(), 0.0, PI, 100);
+        assert_eq!(a.0.to_bits(), b.0.to_bits());
+        assert_eq!(a.1, b.1);
+    }
+
+    // ── monte_carlo_1d_stratified ───────────────────────────────────────────
+
+    #[test]
+    fn mc_1d_stratified_sin_integral() {
+        // Stratified should be much more accurate than plain MC at same n
+        let (est, _) = monte_carlo_1d_stratified(42, |x| x.sin(), 0.0, PI, 100);
+        assert!((est - 2.0).abs() < 0.01, "stratified est={est}");
+    }
+
+    #[test]
+    fn mc_1d_stratified_beats_plain() {
+        let n = 100;
+        let (plain, _) = monte_carlo_1d(42, |x| x.sin(), 0.0, PI, n);
+        let (strat, _) = monte_carlo_1d_stratified(42, |x| x.sin(), 0.0, PI, n);
+        let plain_err = (plain - 2.0).abs();
+        let strat_err = (strat - 2.0).abs();
+        assert!(strat_err < plain_err, "stratified err={strat_err} should beat plain err={plain_err}");
+    }
+
+    #[test]
+    fn mc_1d_stratified_deterministic() {
+        let a = monte_carlo_1d_stratified(42, |x| x.sin(), 0.0, PI, 100);
+        let b = monte_carlo_1d_stratified(42, |x| x.sin(), 0.0, PI, 100);
         assert_eq!(a.0.to_bits(), b.0.to_bits());
         assert_eq!(a.1, b.1);
     }

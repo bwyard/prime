@@ -294,6 +294,93 @@ pub fn duffing_step(
     )
 }
 
+// ── Logistic map ─────────────────────────────────────────────────────────────
+
+/// Logistic map: x_{n+1} = r * x * (1 - x). Exhibits chaos for r > 3.57.
+///
+/// ```rust
+/// # use prime_dynamics::logistic;
+/// let x = logistic(0.5, 3.9);
+/// assert!(x > 0.0 && x < 1.0);
+/// ```
+pub fn logistic(x: f32, r: f32) -> f32 {
+    r * x * (1.0 - x)
+}
+
+// ── Lotka-Volterra (predator-prey) ───────────────────────────────────────────
+
+/// Lotka-Volterra predator-prey step via Euler.
+///
+/// dx/dt = alpha*x - beta*x*y  (prey growth - predation)
+/// dy/dt = delta*x*y - gamma*y (predator growth - death)
+///
+/// ```rust
+/// # use prime_dynamics::lotka_volterra_step;
+/// let (x, y) = lotka_volterra_step(1.0, 0.5, 1.1, 0.4, 0.1, 0.4, 0.01);
+/// assert!(x > 0.0 && y > 0.0);
+/// ```
+pub fn lotka_volterra_step(
+    x: f32,
+    y: f32,
+    alpha: f32,
+    beta: f32,
+    delta: f32,
+    gamma: f32,
+    dt: f32,
+) -> (f32, f32) {
+    let dx = (alpha * x - beta * x * y) * dt;
+    let dy = (delta * x * y - gamma * y) * dt;
+    (x + dx, y + dy)
+}
+
+// ── SIR epidemiological model ────────────────────────────────────────────────
+
+/// SIR epidemiological model step.
+///
+/// dS/dt = -beta*S*I, dI/dt = beta*S*I - gamma*I, dR/dt = gamma*I
+///
+/// ```rust
+/// # use prime_dynamics::sir_step;
+/// let (s, i, r) = sir_step(0.99, 0.01, 0.0, 0.3, 0.1, 0.1);
+/// assert!((s + i + r - 1.0).abs() < 1e-4); // population conserved
+/// ```
+pub fn sir_step(s: f32, i: f32, r: f32, beta: f32, gamma: f32, dt: f32) -> (f32, f32, f32) {
+    let ds = -beta * s * i * dt;
+    let di = (beta * s * i - gamma * i) * dt;
+    let dr = gamma * i * dt;
+    (s + ds, i + di, r + dr)
+}
+
+// ── Gray-Scott reaction-diffusion ────────────────────────────────────────────
+
+/// Gray-Scott reaction-diffusion step for a single cell.
+///
+/// du/dt = Du*laplacian_u - u*v^2 + f*(1-u)
+/// dv/dt = Dv*laplacian_v + u*v^2 - (f+k)*v
+///
+/// ```rust
+/// # use prime_dynamics::gray_scott_step;
+/// let (u, v) = gray_scott_step(1.0, 0.0, 0.0, 0.0, 0.04, 0.06, 0.01);
+/// assert!(u >= 0.0);
+/// ```
+pub fn gray_scott_step(
+    u: f32,
+    v: f32,
+    laplacian_u: f32,
+    laplacian_v: f32,
+    f: f32,
+    k: f32,
+    dt: f32,
+) -> (f32, f32) {
+    let du_dt = laplacian_u - u * v * v + f * (1.0 - u);
+    let dv_dt = laplacian_v + u * v * v - (f + k) * v;
+    (u + du_dt * dt, v + dv_dt * dt)
+}
+
+// ── L-systems ────────────────────────────────────────────────────────────────
+// DEFERRED: L-systems require string allocation, which is a different paradigm
+// from the numeric functions in this crate. Will be added in a future phase.
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -467,5 +554,120 @@ mod tests {
         let a = duffing_step((1.0, 0.0), 0.5, p, 0.01);
         let b = duffing_step((1.0, 0.0), 0.5, p, 0.01);
         assert_eq!(a, b);
+    }
+
+    // ── logistic ──────────────────────────────────────────────────────────────
+
+    #[test]
+    fn logistic_fixed_point_r2() {
+        // r=2, x=0.5 is a fixed point: 2 * 0.5 * (1 - 0.5) = 0.5
+        let x = logistic(0.5, 2.0);
+        assert!((x - 0.5).abs() < EPSILON, "x={}", x);
+    }
+
+    #[test]
+    fn logistic_r4_stays_in_unit() {
+        // r=4 is fully chaotic but maps [0,1] → [0,1]
+        let x = (0..1000).fold(0.1_f32, |x, _| logistic(x, 4.0));
+        assert!(x >= 0.0 && x <= 1.0, "x={}", x);
+    }
+
+    #[test]
+    fn logistic_deterministic() {
+        let a = logistic(0.3, 3.7);
+        let b = logistic(0.3, 3.7);
+        assert!((a - b).abs() < EPSILON);
+    }
+
+    #[test]
+    fn logistic_zero_input() {
+        // x=0 is always a fixed point regardless of r
+        let x = logistic(0.0, 3.9);
+        assert!((x).abs() < EPSILON, "x={}", x);
+    }
+
+    // ── lotka_volterra_step ───────────────────────────────────────────────────
+
+    #[test]
+    fn lotka_volterra_populations_positive() {
+        let (x, y) = (0..1000).fold((1.0_f32, 0.5_f32), |(x, y), _| {
+            lotka_volterra_step(x, y, 1.1, 0.4, 0.1, 0.4, 0.01)
+        });
+        assert!(x > 0.0 && y > 0.0, "x={} y={}", x, y);
+    }
+
+    #[test]
+    fn lotka_volterra_small_dt_bounded() {
+        let (x, y) = (0..100).fold((2.0_f32, 1.0_f32), |(x, y), _| {
+            lotka_volterra_step(x, y, 1.1, 0.4, 0.1, 0.4, 0.001)
+        });
+        assert!(x < 100.0 && y < 100.0, "x={} y={}", x, y);
+    }
+
+    #[test]
+    fn lotka_volterra_deterministic() {
+        let a = lotka_volterra_step(1.0, 0.5, 1.1, 0.4, 0.1, 0.4, 0.01);
+        let b = lotka_volterra_step(1.0, 0.5, 1.1, 0.4, 0.1, 0.4, 0.01);
+        assert!((a.0 - b.0).abs() < EPSILON && (a.1 - b.1).abs() < EPSILON);
+    }
+
+    // ── sir_step ──────────────────────────────────────────────────────────────
+
+    #[test]
+    fn sir_population_conserved() {
+        let (s, i, r) = (0..1000).fold((0.99_f32, 0.01_f32, 0.0_f32), |(s, i, r), _| {
+            sir_step(s, i, r, 0.3, 0.1, 0.1)
+        });
+        let total = s + i + r;
+        assert!((total - 1.0).abs() < EPSILON, "total={}", total);
+    }
+
+    #[test]
+    fn sir_no_infected_no_change() {
+        // With i=0, nothing should change
+        let (s, i, r) = sir_step(1.0, 0.0, 0.0, 0.3, 0.1, 0.1);
+        assert!((s - 1.0).abs() < EPSILON);
+        assert!((i).abs() < EPSILON);
+        assert!((r).abs() < EPSILON);
+    }
+
+    #[test]
+    fn sir_deterministic() {
+        let a = sir_step(0.99, 0.01, 0.0, 0.3, 0.1, 0.1);
+        let b = sir_step(0.99, 0.01, 0.0, 0.3, 0.1, 0.1);
+        assert!((a.0 - b.0).abs() < EPSILON);
+        assert!((a.1 - b.1).abs() < EPSILON);
+        assert!((a.2 - b.2).abs() < EPSILON);
+    }
+
+    // ── gray_scott_step ───────────────────────────────────────────────────────
+
+    #[test]
+    fn gray_scott_stable_without_v() {
+        // u=1, v=0: no reaction occurs, u drifts toward 1 via feed term
+        let (u, v) = gray_scott_step(1.0, 0.0, 0.0, 0.0, 0.04, 0.06, 0.01);
+        assert!((u - 1.0).abs() < EPSILON, "u={}", u);
+        assert!((v).abs() < EPSILON, "v={}", v);
+    }
+
+    #[test]
+    fn gray_scott_reaction_with_v() {
+        // When both u and v are present, reaction should change concentrations
+        let (u1, v1) = gray_scott_step(0.5, 0.25, 0.0, 0.0, 0.04, 0.06, 0.1);
+        assert!((u1 - 0.5).abs() > EPSILON || (v1 - 0.25).abs() > EPSILON,
+            "u1={} v1={}", u1, v1);
+    }
+
+    #[test]
+    fn gray_scott_deterministic() {
+        let a = gray_scott_step(0.5, 0.25, 0.1, -0.05, 0.04, 0.06, 0.01);
+        let b = gray_scott_step(0.5, 0.25, 0.1, -0.05, 0.04, 0.06, 0.01);
+        assert!((a.0 - b.0).abs() < EPSILON && (a.1 - b.1).abs() < EPSILON);
+    }
+
+    #[test]
+    fn gray_scott_zero_dt_no_change() {
+        let (u, v) = gray_scott_step(0.5, 0.3, 0.1, 0.1, 0.04, 0.06, 0.0);
+        assert!((u - 0.5).abs() < EPSILON && (v - 0.3).abs() < EPSILON);
     }
 }

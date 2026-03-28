@@ -228,6 +228,113 @@ export interface DuffingParams {
  * const [, v1] = duffingStep([0, 0], 0, p, 0.01)
  * // v1 > 0 (driving force kicks it)
  */
+// ── Logistic map ─────────────────────────────────────────────────────────────
+
+/**
+ * Logistic map: x_{n+1} = r * x * (1 - x). Exhibits chaos for r > 3.57.
+ *
+ * @param x - current value in [0, 1]
+ * @param r - growth rate parameter
+ * @returns next value
+ *
+ * @example
+ * logistic(0.5, 2) // 0.5 (fixed point)
+ */
+export const logistic = (x: number, r: number): number => r * x * (1 - x)
+
+// ── Lotka-Volterra (predator-prey) ───────────────────────────────────────────
+
+/**
+ * Lotka-Volterra predator-prey step via Euler.
+ *
+ * dx/dt = alpha*x - beta*x*y  (prey growth - predation)
+ * dy/dt = delta*x*y - gamma*y (predator growth - death)
+ *
+ * @param x     - prey population
+ * @param y     - predator population
+ * @param alpha - prey birth rate
+ * @param beta  - predation rate
+ * @param delta - predator growth from predation
+ * @param gamma - predator death rate
+ * @param dt    - time step
+ * @returns [nextX, nextY]
+ */
+export const lotkaVolterraStep = (
+  x: number,
+  y: number,
+  alpha: number,
+  beta: number,
+  delta: number,
+  gamma: number,
+  dt: number,
+): [number, number] => {
+  const dx = (alpha * x - beta * x * y) * dt
+  const dy = (delta * x * y - gamma * y) * dt
+  return [x + dx, y + dy]
+}
+
+// ── SIR epidemiological model ────────────────────────────────────────────────
+
+/**
+ * SIR epidemiological model step.
+ *
+ * dS/dt = -beta*S*I, dI/dt = beta*S*I - gamma*I, dR/dt = gamma*I
+ *
+ * @param s     - susceptible fraction
+ * @param i     - infected fraction
+ * @param r     - recovered fraction
+ * @param beta  - infection rate
+ * @param gamma - recovery rate
+ * @param dt    - time step
+ * @returns [nextS, nextI, nextR]
+ */
+export const sirStep = (
+  s: number,
+  i: number,
+  r: number,
+  beta: number,
+  gamma: number,
+  dt: number,
+): [number, number, number] => {
+  const ds = -beta * s * i * dt
+  const di = (beta * s * i - gamma * i) * dt
+  const dr = gamma * i * dt
+  return [s + ds, i + di, r + dr]
+}
+
+// ── Gray-Scott reaction-diffusion ────────────────────────────────────────────
+
+/**
+ * Gray-Scott reaction-diffusion step for a single cell.
+ *
+ * du/dt = Du*laplacian_u - u*v^2 + f*(1-u)
+ * dv/dt = Dv*laplacian_v + u*v^2 - (f+k)*v
+ *
+ * @param u          - concentration of U
+ * @param v          - concentration of V
+ * @param laplacianU - discrete Laplacian of U
+ * @param laplacianV - discrete Laplacian of V
+ * @param f          - feed rate
+ * @param k          - kill rate
+ * @param dt         - time step
+ * @returns [nextU, nextV]
+ */
+export const grayScottStep = (
+  u: number,
+  v: number,
+  laplacianU: number,
+  laplacianV: number,
+  f: number,
+  k: number,
+  dt: number,
+): [number, number] => {
+  const duDt = laplacianU - u * v * v + f * (1 - u)
+  const dvDt = laplacianV + u * v * v - (f + k) * v
+  return [u + duDt * dt, v + dvDt * dt]
+}
+
+// ── Duffing oscillator ────────────────────────────────────────────────────────
+
 export const duffingStep = (
   state: [number, number],
   t: number,

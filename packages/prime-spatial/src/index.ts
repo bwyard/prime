@@ -368,3 +368,39 @@ export const frustumCullSphere = (
     ([nx, ny, nz, d]) =>
       nx * center[0] + ny * center[1] + nz * center[2] + d < -radius,
   );
+
+// ── Frustum cull (AABB) ──────────────────────────────────────────────────────
+
+/**
+ * Test whether an AABB is inside (or intersecting) a view frustum.
+ *
+ * Returns `true` if the AABB's positive vertex (p-vertex) is inside all six
+ * frustum half-spaces, meaning the box is at least partially visible.
+ * Returns `false` when the AABB is fully outside any single plane.
+ *
+ * Math:
+ *   For each plane, select the AABB corner most in the direction of the plane
+ *   normal (p-vertex). If that corner is outside, the entire AABB is outside.
+ *   The AABB passes if its p-vertex is inside every plane.
+ *
+ * @param aabbMin - Corner with smallest coordinates on every axis.
+ * @param aabbMax - Corner with largest coordinates on every axis.
+ * @param planes  - Six frustum planes `[nx, ny, nz, d]` with inward normals.
+ * @returns `true` if the AABB is at least partially inside the frustum,
+ *          `false` if it is fully outside any plane.
+ *
+ * @example
+ * frustumCullAabb([-0.5,-0.5,-0.5], [0.5,0.5,0.5], UNIT_FRUSTUM) // true
+ * frustumCullAabb([5,5,5], [6,6,6], UNIT_FRUSTUM)                 // false
+ */
+export const frustumCullAabb = (
+  aabbMin: [number, number, number],
+  aabbMax: [number, number, number],
+  planes: readonly [number, number, number, number][],
+): boolean =>
+  planes.every(([nx, ny, nz, d]) => {
+    const px = nx >= 0 ? aabbMax[0] : aabbMin[0]
+    const py = ny >= 0 ? aabbMax[1] : aabbMin[1]
+    const pz = nz >= 0 ? aabbMax[2] : aabbMin[2]
+    return nx * px + ny * py + nz * pz + d >= 0
+  });

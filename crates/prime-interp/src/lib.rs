@@ -38,6 +38,15 @@ pub fn lerp(a: f32, b: f32, t: f32) -> f32 {
     a + t * (b - a)
 }
 
+/// Lerp with t clamped to [0, 1].
+/// ```rust
+/// # use prime_interp::lerp_clamped;
+/// assert!((lerp_clamped(0.0, 10.0, 1.5) - 10.0).abs() < 1e-5);
+/// ```
+pub fn lerp_clamped(a: f32, b: f32, t: f32) -> f32 {
+    lerp(a, b, t.clamp(0.0, 1.0))
+}
+
 /// Inverse lerp — the t that produces `v` between `a` and `b`.
 ///
 /// # Math
@@ -78,6 +87,33 @@ pub fn inv_lerp(a: f32, b: f32, v: f32) -> f32 {
 /// ```
 pub fn remap(v: f32, in_min: f32, in_max: f32, out_min: f32, out_max: f32) -> f32 {
     lerp(out_min, out_max, inv_lerp(in_min, in_max, v))
+}
+
+/// Repeat: wraps t into [0, length).
+///
+/// `repeat(2.5, 1.0) = 0.5`
+/// ```rust
+/// # use prime_interp::repeat;
+/// assert!((repeat(2.5, 1.0) - 0.5).abs() < 1e-5);
+/// assert!((repeat(-0.3, 1.0) - 0.7).abs() < 1e-5);
+/// ```
+pub fn repeat(t: f32, length: f32) -> f32 {
+    if length == 0.0 { return 0.0; }
+    t - (t / length).floor() * length
+}
+
+/// Ping-pong: t bounces between 0 and length.
+///
+/// `pingpong(2.5, 1.0) = 0.5` — t=2.5 wraps to 0.5 on the return stroke.
+/// ```rust
+/// # use prime_interp::pingpong;
+/// assert!((pingpong(2.5, 1.0) - 0.5).abs() < 1e-5);
+/// assert!((pingpong(1.5, 1.0) - 0.5).abs() < 1e-5);
+/// ```
+pub fn pingpong(t: f32, length: f32) -> f32 {
+    if length == 0.0 { return 0.0; }
+    let t = repeat(t, length * 2.0);
+    length - (t - length).abs()
 }
 
 // ── Smooth ────────────────────────────────────────────────────────────────
@@ -347,6 +383,31 @@ pub fn ease_in_out_bounce(t: f32) -> f32 {
     else { (1.0 + ease_out_bounce(2.0 * t - 1.0)) / 2.0 }
 }
 
+// ── Easing — Back ─────────────────────────────────────────────────────────
+
+/// Ease in with overshoot (back). `s = 1.70158`.
+/// ```rust
+/// # use prime_interp::ease_in_back;
+/// assert!((ease_in_back(0.0)).abs() < 1e-5);
+/// assert!((ease_in_back(1.0) - 1.0).abs() < 1e-5);
+/// ```
+pub fn ease_in_back(t: f32) -> f32 {
+    let s = 1.70158_f32;
+    t * t * ((s + 1.0) * t - s)
+}
+
+/// Ease out with overshoot (back). `s = 1.70158`.
+/// ```rust
+/// # use prime_interp::ease_out_back;
+/// assert!((ease_out_back(0.0)).abs() < 1e-5);
+/// assert!((ease_out_back(1.0) - 1.0).abs() < 1e-5);
+/// ```
+pub fn ease_out_back(t: f32) -> f32 {
+    let s = 1.70158_f32;
+    let t = t - 1.0;
+    t * t * ((s + 1.0) * t + s) + 1.0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -432,6 +493,7 @@ mod tests {
         check_ease(&ease_in_circ, "ease_in_circ");
         check_ease(&ease_in_elastic, "ease_in_elastic");
         check_ease(&ease_in_bounce, "ease_in_bounce");
+        check_ease(&ease_in_back, "ease_in_back");
     }
 
     #[test]
@@ -445,6 +507,7 @@ mod tests {
         check_ease(&ease_out_circ, "ease_out_circ");
         check_ease(&ease_out_elastic, "ease_out_elastic");
         check_ease(&ease_out_bounce, "ease_out_bounce");
+        check_ease(&ease_out_back, "ease_out_back");
     }
 
     #[test]
@@ -493,5 +556,81 @@ mod tests {
             let v = ease_out_bounce(t);
             assert!(v >= -0.01 && v <= 1.01, "ease_out_bounce({t}) = {v} out of bounds");
         }
+    }
+
+    // ── lerp_clamped ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn lerp_clamped_within_range() {
+        assert!((lerp_clamped(0.0, 10.0, 0.5) - 5.0).abs() < EPSILON);
+    }
+
+    #[test]
+    fn lerp_clamped_clamps_above() {
+        assert!((lerp_clamped(0.0, 10.0, 1.5) - 10.0).abs() < EPSILON);
+    }
+
+    #[test]
+    fn lerp_clamped_clamps_below() {
+        assert!((lerp_clamped(0.0, 10.0, -0.5) - 0.0).abs() < EPSILON);
+    }
+
+    // ── repeat ────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn repeat_wraps_positive() {
+        assert!((repeat(2.5, 1.0) - 0.5).abs() < EPSILON);
+    }
+
+    #[test]
+    fn repeat_wraps_negative() {
+        assert!((repeat(-0.3, 1.0) - 0.7).abs() < EPSILON);
+    }
+
+    #[test]
+    fn repeat_zero_length() {
+        assert_eq!(repeat(5.0, 0.0), 0.0);
+    }
+
+    // ── pingpong ──────────────────────────────────────────────────────────────
+
+    #[test]
+    fn pingpong_bounces() {
+        assert!((pingpong(0.5, 1.0) - 0.5).abs() < EPSILON);
+        assert!((pingpong(1.5, 1.0) - 0.5).abs() < EPSILON);
+        assert!((pingpong(2.5, 1.0) - 0.5).abs() < EPSILON);
+    }
+
+    #[test]
+    fn pingpong_at_boundaries() {
+        assert!((pingpong(0.0, 1.0)).abs() < EPSILON);
+        assert!((pingpong(1.0, 1.0) - 1.0).abs() < EPSILON);
+        assert!((pingpong(2.0, 1.0)).abs() < EPSILON);
+    }
+
+    // ── ease_in_back / ease_out_back ──────────────────────────────────────────
+
+    #[test]
+    fn ease_in_back_boundaries() {
+        assert!((ease_in_back(0.0)).abs() < EPSILON);
+        assert!((ease_in_back(1.0) - 1.0).abs() < EPSILON);
+    }
+
+    #[test]
+    fn ease_in_back_undershoots() {
+        // Back easing goes negative before t=0.5
+        assert!(ease_in_back(0.2) < 0.0);
+    }
+
+    #[test]
+    fn ease_out_back_boundaries() {
+        assert!((ease_out_back(0.0)).abs() < EPSILON);
+        assert!((ease_out_back(1.0) - 1.0).abs() < EPSILON);
+    }
+
+    #[test]
+    fn ease_out_back_overshoots() {
+        // Back easing overshoots past 1.0 before settling
+        assert!(ease_out_back(0.8) > 1.0);
     }
 }

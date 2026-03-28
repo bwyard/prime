@@ -20,6 +20,13 @@ import {
   srgbToHsl,
   hslToSrgb,
   oklabMix,
+  srgbToHsv,
+  hsvToSrgb,
+  luminance,
+  contrastRatio,
+  paletteComplementary,
+  paletteTriadic,
+  paletteAnalogous,
 } from "../index.js";
 
 // ---------------------------------------------------------------------------
@@ -340,5 +347,156 @@ describe("oklabMix", () => {
   it("mix with itself at any t returns the same color", () => {
     const [r, g, b] = oklabMix(0.8, 0.2, 0.4, 0.8, 0.2, 0.4, 0.5);
     expect(tupleApproxEq([r, g, b], [0.8, 0.2, 0.4], 1e-3)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// sRGB ↔ HSV
+// ---------------------------------------------------------------------------
+
+describe("srgbToHsv — known values", () => {
+  it("black → (0, 0, 0)", () => {
+    expect(tupleApproxEq(srgbToHsv(0, 0, 0), [0, 0, 0])).toBe(true);
+  });
+
+  it("white → (0, 0, 1)", () => {
+    expect(tupleApproxEq(srgbToHsv(1, 1, 1), [0, 0, 1])).toBe(true);
+  });
+
+  it("red → (0, 1, 1)", () => {
+    expect(tupleApproxEq(srgbToHsv(1, 0, 0), [0, 1, 1])).toBe(true);
+  });
+
+  it("green → (120, 1, 1)", () => {
+    expect(tupleApproxEq(srgbToHsv(0, 1, 0), [120, 1, 1])).toBe(true);
+  });
+
+  it("blue → (240, 1, 1)", () => {
+    expect(tupleApproxEq(srgbToHsv(0, 0, 1), [240, 1, 1])).toBe(true);
+  });
+});
+
+describe("hsvToSrgb — known values", () => {
+  it("(0, 0, 0) → black", () => {
+    expect(tupleApproxEq(hsvToSrgb(0, 0, 0), [0, 0, 0])).toBe(true);
+  });
+
+  it("(0, 0, 1) → white", () => {
+    expect(tupleApproxEq(hsvToSrgb(0, 0, 1), [1, 1, 1])).toBe(true);
+  });
+
+  it("(0, 1, 1) → red", () => {
+    expect(tupleApproxEq(hsvToSrgb(0, 1, 1), [1, 0, 0])).toBe(true);
+  });
+
+  it("(120, 1, 1) → green", () => {
+    expect(tupleApproxEq(hsvToSrgb(120, 1, 1), [0, 1, 0])).toBe(true);
+  });
+
+  it("(240, 1, 1) → blue", () => {
+    expect(tupleApproxEq(hsvToSrgb(240, 1, 1), [0, 0, 1])).toBe(true);
+  });
+});
+
+describe("sRGB ↔ HSV round-trips", () => {
+  const colors: Array<[string, [number, number, number]]> = [
+    ["red",   [1.0, 0.0, 0.0]],
+    ["green", [0.0, 1.0, 0.0]],
+    ["blue",  [0.0, 0.0, 1.0]],
+    ["coral", [0.8, 0.4, 0.2]],
+  ];
+
+  colors.forEach(([name, [r, g, b]]) => {
+    it(`sRGB → HSV → sRGB round-trip: ${name}`, () => {
+      const [h, s, v] = srgbToHsv(r, g, b);
+      const back = hsvToSrgb(h, s, v);
+      expect(tupleApproxEq(back, [r, g, b])).toBe(true);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// luminance
+// ---------------------------------------------------------------------------
+
+describe("luminance", () => {
+  it("white has luminance 1.0", () => {
+    expect(approxEq(luminance(1, 1, 1), 1.0)).toBe(true);
+  });
+
+  it("black has luminance 0.0", () => {
+    expect(approxEq(luminance(0, 0, 0), 0.0)).toBe(true);
+  });
+
+  it("green has highest coefficient", () => {
+    expect(luminance(0, 1, 0)).toBeGreaterThan(luminance(1, 0, 0));
+    expect(luminance(0, 1, 0)).toBeGreaterThan(luminance(0, 0, 1));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// contrastRatio
+// ---------------------------------------------------------------------------
+
+describe("contrastRatio", () => {
+  it("white on black is ~21:1", () => {
+    const ratio = contrastRatio(1, 1, 1, 0, 0, 0);
+    expect(ratio).toBeGreaterThanOrEqual(20.9);
+  });
+
+  it("same color has ratio 1", () => {
+    const ratio = contrastRatio(0.5, 0.5, 0.5, 0.5, 0.5, 0.5);
+    expect(approxEq(ratio, 1.0)).toBe(true);
+  });
+
+  it("is always >= 1", () => {
+    const ratio = contrastRatio(0.2, 0.4, 0.6, 0.8, 0.3, 0.1);
+    expect(ratio).toBeGreaterThanOrEqual(1.0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Palette generation
+// ---------------------------------------------------------------------------
+
+describe("paletteComplementary", () => {
+  it("red complement is cyan", () => {
+    const [r, g, b] = paletteComplementary(1, 0, 0);
+    expect(r).toBeLessThan(0.1);
+    expect(approxEq(g, 1.0, 1e-3)).toBe(true);
+    expect(approxEq(b, 1.0, 1e-3)).toBe(true);
+  });
+
+  it("complement of complement round-trips", () => {
+    const comp = paletteComplementary(0.8, 0.2, 0.4);
+    const back = paletteComplementary(comp[0], comp[1], comp[2]);
+    expect(tupleApproxEq(back, [0.8, 0.2, 0.4], 1e-3)).toBe(true);
+  });
+});
+
+describe("paletteTriadic", () => {
+  it("red triadic produces green-ish and blue-ish", () => {
+    const [[r1, g1], [, , b2]] = paletteTriadic(1, 0, 0);
+    expect(g1).toBeGreaterThan(0.9);
+    expect(b2).toBeGreaterThan(0.9);
+    expect(r1).toBeLessThan(0.1);
+  });
+
+  it("returns two distinct colors", () => {
+    const [c1, c2] = paletteTriadic(0.5, 0.3, 0.7);
+    expect(tupleApproxEq(c1, c2)).toBe(false);
+  });
+});
+
+describe("paletteAnalogous", () => {
+  it("red analogous stays warm (r > 0.5)", () => {
+    const [[r1], [r2]] = paletteAnalogous(1, 0, 0);
+    expect(r1).toBeGreaterThan(0.5);
+    expect(r2).toBeGreaterThan(0.5);
+  });
+
+  it("returns two distinct colors", () => {
+    const [c1, c2] = paletteAnalogous(0.5, 0.3, 0.7);
+    expect(tupleApproxEq(c1, c2)).toBe(false);
   });
 });

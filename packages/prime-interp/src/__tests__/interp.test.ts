@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  lerp, invLerp, remap,
+  lerp, lerpClamped, invLerp, remap,
   smoothstep, smootherstep,
   easeInQuad, easeOutQuad, easeInOutQuad,
   easeInCubic, easeOutCubic, easeInOutCubic,
@@ -8,6 +8,8 @@ import {
   easeInExpo, easeOutExpo, easeInOutExpo,
   easeInElastic, easeOutElastic,
   easeInBounce, easeOutBounce, easeInOutBounce,
+  easeInBack, easeOutBack,
+  repeat, pingpong,
 } from '../index.js'
 
 const EPS = 1e-5
@@ -66,6 +68,8 @@ const easings: [string, (t: number) => number][] = [
   ['easeInBounce', easeInBounce],
   ['easeOutBounce', easeOutBounce],
   ['easeInOutBounce', easeInOutBounce],
+  ['easeInBack', easeInBack],
+  ['easeOutBack', easeOutBack],
 ]
 
 describe('easing boundary conditions', () => {
@@ -93,6 +97,49 @@ describe('easeOutBounce', () => {
         expect(v).toBeLessThanOrEqual(1.01)
       })
   })
+})
+
+// ── lerpClamped ──────────────────────────────────────────────────────────────
+
+describe('lerpClamped', () => {
+  it('returns midpoint at t=0.5', () => expect(lerpClamped(0, 10, 0.5)).toBeCloseTo(5, 5))
+  it('clamps t above 1', () => expect(lerpClamped(0, 10, 1.5)).toBeCloseTo(10, 5))
+  it('clamps t below 0', () => expect(lerpClamped(0, 10, -0.5)).toBeCloseTo(0, 5))
+})
+
+// ── repeat ───────────────────────────────────────────────────────────────────
+
+describe('repeat', () => {
+  it('wraps positive', () => expect(repeat(2.5, 1)).toBeCloseTo(0.5, 5))
+  it('wraps negative', () => expect(repeat(-0.3, 1)).toBeCloseTo(0.7, 5))
+  it('zero length returns 0', () => expect(repeat(5, 0)).toBe(0))
+})
+
+// ── pingpong ─────────────────────────────────────────────────────────────────
+
+describe('pingpong', () => {
+  it('bounces at 0.5', () => expect(pingpong(0.5, 1)).toBeCloseTo(0.5, 5))
+  it('bounces at 1.5', () => expect(pingpong(1.5, 1)).toBeCloseTo(0.5, 5))
+  it('bounces at 2.5', () => expect(pingpong(2.5, 1)).toBeCloseTo(0.5, 5))
+  it('at boundaries', () => {
+    expect(pingpong(0, 1)).toBeCloseTo(0, 5)
+    expect(pingpong(1, 1)).toBeCloseTo(1, 5)
+    expect(pingpong(2, 1)).toBeCloseTo(0, 5)
+  })
+})
+
+// ── easeInBack / easeOutBack ─────────────────────────────────────────────────
+
+describe('easeInBack', () => {
+  it('boundary: f(0) = 0', () => expect(easeInBack(0)).toBeCloseTo(0, 5))
+  it('boundary: f(1) = 1', () => expect(easeInBack(1)).toBeCloseTo(1, 5))
+  it('undershoots (goes negative)', () => expect(easeInBack(0.2)).toBeLessThan(0))
+})
+
+describe('easeOutBack', () => {
+  it('boundary: f(0) = 0', () => expect(easeOutBack(0)).toBeCloseTo(0, 5))
+  it('boundary: f(1) = 1', () => expect(easeOutBack(1)).toBeCloseTo(1, 5))
+  it('overshoots (exceeds 1)', () => expect(easeOutBack(0.8)).toBeGreaterThan(1))
 })
 
 // ── Cross-language parity (values verified against Rust prime-interp) ─────────

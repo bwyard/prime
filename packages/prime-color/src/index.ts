@@ -506,3 +506,197 @@ export const oklabMix = (
 
   return oklabToSrgb(lMix, aMix, bMix);
 };
+
+// ---------------------------------------------------------------------------
+// Public API — sRGB ↔ HSV
+// ---------------------------------------------------------------------------
+
+/**
+ * Converts an sRGB color to HSV.
+ *
+ * @param r - red in sRGB, `[0, 1]`
+ * @param g - green in sRGB, `[0, 1]`
+ * @param b - blue in sRGB, `[0, 1]`
+ * @returns `[h, s, v]` where h in `[0, 360)`, s and v in `[0, 1]`
+ *
+ * @example
+ * ```ts
+ * const [h, s, v] = srgbToHsv(1.0, 0.0, 0.0);
+ * // [0, 1, 1]  — pure red
+ * ```
+ */
+export const srgbToHsv = (
+  r: number,
+  g: number,
+  b: number,
+): [number, number, number] => {
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const delta = max - min;
+  const v = max;
+  const s = max === 0 ? 0 : delta / max;
+  const hRaw = delta === 0
+    ? 0
+    : max === r
+      ? 60.0 * (((g - b) / delta) % 6.0)
+      : max === g
+        ? 60.0 * ((b - r) / delta + 2.0)
+        : 60.0 * ((r - g) / delta + 4.0);
+  const h = hRaw < 0 ? hRaw + 360.0 : hRaw;
+  return [h, s, v];
+};
+
+/**
+ * Converts an HSV color to sRGB.
+ *
+ * @param h - hue in degrees, `[0, 360)`
+ * @param s - saturation, `[0, 1]`
+ * @param v - value, `[0, 1]`
+ * @returns sRGB tuple `[r, g, b]`, each in `[0, 1]`
+ *
+ * @example
+ * ```ts
+ * const [r, g, b] = hsvToSrgb(120.0, 1.0, 1.0);
+ * // [0, 1, 0]  — pure green
+ * ```
+ */
+export const hsvToSrgb = (
+  h: number,
+  s: number,
+  v: number,
+): [number, number, number] => {
+  const c = v * s;
+  const h2 = h / 60.0;
+  const x = c * (1.0 - Math.abs((h2 % 2.0) - 1.0));
+  const m = v - c;
+  const [r1, g1, b1] = h2 < 1 ? [c, x, 0]
+    : h2 < 2 ? [x, c, 0]
+    : h2 < 3 ? [0, c, x]
+    : h2 < 4 ? [0, x, c]
+    : h2 < 5 ? [x, 0, c]
+    : [c, 0, x];
+  return [r1 + m, g1 + m, b1 + m];
+};
+
+// ---------------------------------------------------------------------------
+// Public API — Luminance utilities
+// ---------------------------------------------------------------------------
+
+/**
+ * Relative luminance (ITU-R BT.709). Input is linear RGB.
+ *
+ * Math: `Y = 0.2126 * R + 0.7152 * G + 0.0722 * B`
+ *
+ * @param r - red in linear RGB
+ * @param g - green in linear RGB
+ * @param b - blue in linear RGB
+ * @returns Relative luminance in `[0, 1]`
+ *
+ * @example
+ * ```ts
+ * luminance(1.0, 1.0, 1.0) // 1.0
+ * ```
+ */
+export const luminance = (r: number, g: number, b: number): number =>
+  0.2126 * r + 0.7152 * g + 0.0722 * b;
+
+/**
+ * WCAG contrast ratio between two sRGB colors. Returns value >= 1.
+ *
+ * Converts both to linear RGB, computes relative luminance, then:
+ * `ratio = (L_lighter + 0.05) / (L_darker + 0.05)`
+ *
+ * @param r0 - red of first color in sRGB
+ * @param g0 - green of first color in sRGB
+ * @param b0 - blue of first color in sRGB
+ * @param r1 - red of second color in sRGB
+ * @param g1 - green of second color in sRGB
+ * @param b1 - blue of second color in sRGB
+ * @returns Contrast ratio >= 1
+ *
+ * @example
+ * ```ts
+ * contrastRatio(1, 1, 1, 0, 0, 0) // ~21
+ * ```
+ */
+export const contrastRatio = (
+  r0: number, g0: number, b0: number,
+  r1: number, g1: number, b1: number,
+): number => {
+  const [lr0, lg0, lb0] = srgbToLinear(r0, g0, b0);
+  const [lr1, lg1, lb1] = srgbToLinear(r1, g1, b1);
+  const l0 = luminance(lr0, lg0, lb0);
+  const l1 = luminance(lr1, lg1, lb1);
+  const [lighter, darker] = l0 > l1 ? [l0, l1] : [l1, l0];
+  return (lighter + 0.05) / (darker + 0.05);
+};
+
+// ---------------------------------------------------------------------------
+// Public API — Palette generation
+// ---------------------------------------------------------------------------
+
+/**
+ * Complementary color — rotate hue by 180 degrees in HSL.
+ *
+ * @param r - red in sRGB, `[0, 1]`
+ * @param g - green in sRGB, `[0, 1]`
+ * @param b - blue in sRGB, `[0, 1]`
+ * @returns sRGB tuple of the complementary color
+ *
+ * @example
+ * ```ts
+ * paletteComplementary(1, 0, 0) // cyan
+ * ```
+ */
+export const paletteComplementary = (
+  r: number, g: number, b: number,
+): [number, number, number] => {
+  const [h, s, l] = srgbToHsl(r, g, b);
+  return hslToSrgb((h + 180.0) % 360.0, s, l);
+};
+
+/**
+ * Triadic palette — two colors at +120 and +240 degrees in HSL.
+ *
+ * @param r - red in sRGB, `[0, 1]`
+ * @param g - green in sRGB, `[0, 1]`
+ * @param b - blue in sRGB, `[0, 1]`
+ * @returns `[[r1, g1, b1], [r2, g2, b2]]`
+ *
+ * @example
+ * ```ts
+ * const [c1, c2] = paletteTriadic(1, 0, 0)
+ * ```
+ */
+export const paletteTriadic = (
+  r: number, g: number, b: number,
+): [[number, number, number], [number, number, number]] => {
+  const [h, s, l] = srgbToHsl(r, g, b);
+  return [
+    hslToSrgb((h + 120.0) % 360.0, s, l),
+    hslToSrgb((h + 240.0) % 360.0, s, l),
+  ];
+};
+
+/**
+ * Analogous palette — two colors at +30 and -30 degrees in HSL.
+ *
+ * @param r - red in sRGB, `[0, 1]`
+ * @param g - green in sRGB, `[0, 1]`
+ * @param b - blue in sRGB, `[0, 1]`
+ * @returns `[[r1, g1, b1], [r2, g2, b2]]`
+ *
+ * @example
+ * ```ts
+ * const [c1, c2] = paletteAnalogous(1, 0, 0)
+ * ```
+ */
+export const paletteAnalogous = (
+  r: number, g: number, b: number,
+): [[number, number, number], [number, number, number]] => {
+  const [h, s, l] = srgbToHsl(r, g, b);
+  return [
+    hslToSrgb((h + 30.0) % 360.0, s, l),
+    hslToSrgb((h + 330.0) % 360.0, s, l),
+  ];
+};

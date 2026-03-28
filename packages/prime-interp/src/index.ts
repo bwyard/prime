@@ -15,6 +15,16 @@
 export const lerp = (a: number, b: number, t: number): number => a + t * (b - a)
 
 /**
+ * Lerp with t clamped to [0, 1].
+ * @param a - Start value
+ * @param b - End value
+ * @param t - Factor (clamped to [0, 1])
+ * @example lerpClamped(0, 10, 1.5) // 10
+ */
+export const lerpClamped = (a: number, b: number, t: number): number =>
+  lerp(a, b, Math.max(0, Math.min(1, t)))
+
+/**
  * Inverse lerp — the t that produces v between a and b.
  * @remarks inv_lerp(a, b, v) = (v − a) / (b − a)
  * @param a - Range start
@@ -203,3 +213,43 @@ export const easeInOutBounce = (t: number): number =>
   t < 0.5
     ? (1 - easeOutBounce(1 - 2 * t)) / 2
     : (1 + easeOutBounce(2 * t - 1)) / 2
+
+// ── Easing — Back ─────────────────────────────────────────────────────────
+
+/** Ease in with overshoot (back). s = 1.70158. */
+export const easeInBack = (t: number): number => {
+  const s = 1.70158
+  return t * t * ((s + 1) * t - s)
+}
+
+/** Ease out with overshoot (back). s = 1.70158. */
+export const easeOutBack = (t: number): number => {
+  const s = 1.70158
+  const t1 = t - 1
+  return t1 * t1 * ((s + 1) * t1 + s) + 1
+}
+
+// ── Repeat / Pingpong ────────────────────────────────────────────────────
+
+/**
+ * Repeat: wraps t into [0, length).
+ * @param t - Input value
+ * @param length - Period length
+ * @example repeat(2.5, 1.0) // 0.5
+ */
+export const repeat = (t: number, length: number): number => {
+  if (length === 0) return 0
+  return t - Math.floor(t / length) * length
+}
+
+/**
+ * Ping-pong: t bounces between 0 and length.
+ * @param t - Input value
+ * @param length - Bounce range
+ * @example pingpong(2.5, 1.0) // 0.5
+ */
+export const pingpong = (t: number, length: number): number => {
+  if (length === 0) return 0
+  const r = repeat(t, length * 2)
+  return length - Math.abs(r - length)
+}
