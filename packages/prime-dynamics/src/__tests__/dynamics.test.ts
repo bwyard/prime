@@ -10,6 +10,8 @@ import {
   lotkaVolterraStep,
   sirStep,
   grayScottStep,
+  lsystemStep,
+  lsystemGenerate,
   LORENZ_SIGMA,
   LORENZ_RHO,
   LORENZ_BETA,
@@ -306,5 +308,76 @@ describe('grayScottStep', () => {
     const [u, v] = grayScottStep(0.5, 0.3, 0.1, 0.1, 0.04, 0.06, 0)
     expect(u).toBeCloseTo(0.5, 5)
     expect(v).toBeCloseTo(0.3, 5)
+  })
+})
+
+// ── lsystemStep / lsystemGenerate ───────────────────────────────────────────
+
+describe('lsystemStep', () => {
+  const ALGAE_RULES = [
+    { symbol: 'A', replacement: 'AB' },
+    { symbol: 'B', replacement: 'A' },
+  ] as const
+
+  it('algae — A->AB, B->A', () => {
+    expect(lsystemStep('A', ALGAE_RULES)).toBe('AB')
+    expect(lsystemStep('AB', ALGAE_RULES)).toBe('ABA')
+    expect(lsystemStep('ABA', ALGAE_RULES)).toBe('ABAAB')
+  })
+
+  it('Koch curve — F->F+F-F-F+F preserves + and -', () => {
+    const rules = [{ symbol: 'F', replacement: 'F+F-F-F+F' }] as const
+    expect(lsystemStep('F', rules)).toBe('F+F-F-F+F')
+  })
+
+  it('identity for unmapped characters', () => {
+    const rules = [{ symbol: 'A', replacement: 'B' }] as const
+    expect(lsystemStep('AXA', rules)).toBe('BXB')
+  })
+
+  it('empty axiom returns empty string', () => {
+    const rules = [{ symbol: 'A', replacement: 'B' }] as const
+    expect(lsystemStep('', rules)).toBe('')
+  })
+
+  it('deterministic', () => {
+    const rules = [{ symbol: 'F', replacement: 'FF' }] as const
+    expect(lsystemStep('F+F', rules)).toBe(lsystemStep('F+F', rules))
+  })
+})
+
+describe('lsystemGenerate', () => {
+  const ALGAE_RULES = [
+    { symbol: 'A', replacement: 'AB' },
+    { symbol: 'B', replacement: 'A' },
+  ] as const
+
+  it('0 generations returns axiom', () => {
+    expect(lsystemGenerate('A', ALGAE_RULES, 0)).toBe('A')
+  })
+
+  it('1 generation matches single step', () => {
+    expect(lsystemGenerate('A', ALGAE_RULES, 1)).toBe('AB')
+  })
+
+  it('5 generations of algae', () => {
+    expect(lsystemGenerate('A', ALGAE_RULES, 5)).toBe('ABAABABAABAAB')
+  })
+
+  it('Fibonacci lengths from algae L-system', () => {
+    const lengths = Array.from({ length: 8 }).reduce<[number[], string]>(
+      ([lens, s]) => {
+        const next = lsystemStep(s, ALGAE_RULES)
+        return [[...lens, next.length], next]
+      },
+      [[1], 'A'],
+    )[0]
+    // Fibonacci: 1, 2, 3, 5, 8, 13, 21, 34
+    expect(lengths.slice(0, 8)).toEqual([1, 2, 3, 5, 8, 13, 21, 34])
+  })
+
+  it('deterministic', () => {
+    const rules = [{ symbol: 'F', replacement: 'FF' }] as const
+    expect(lsystemGenerate('F', rules, 3)).toBe(lsystemGenerate('F', rules, 3))
   })
 })

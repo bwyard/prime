@@ -378,8 +378,68 @@ pub fn gray_scott_step(
 }
 
 // ── L-systems ────────────────────────────────────────────────────────────────
-// DEFERRED: L-systems require string allocation, which is a different paradigm
-// from the numeric functions in this crate. Will be added in a future phase.
+
+/// Single L-system production rule: maps a character to its replacement string.
+#[derive(Debug, Clone)]
+pub struct LRule {
+    /// The character to match.
+    pub symbol: char,
+    /// The replacement string for this symbol.
+    pub replacement: &'static str,
+}
+
+/// Apply one L-system generation step. Pure LOAD + COMPUTE + APPEND.
+///
+/// Each character in `axiom` is replaced by its matching rule's replacement string.
+/// Characters without matching rules are copied unchanged (identity rule).
+///
+/// # Math
+/// L-system: G = (V, ω, P) where V = alphabet, ω = axiom, P = production rules.
+/// Each generation: σ(ω) = P(c₁) ++ P(c₂) ++ ... ++ P(cₙ)
+///
+/// # Example
+/// ```rust
+/// use prime_dynamics::{LRule, lsystem_step};
+/// let rules = vec![
+///     LRule { symbol: 'A', replacement: "AB" },
+///     LRule { symbol: 'B', replacement: "A" },
+/// ];
+/// let gen1 = lsystem_step("A", &rules);
+/// assert_eq!(gen1, "AB");
+/// let gen2 = lsystem_step(&gen1, &rules);
+/// assert_eq!(gen2, "ABA");
+/// ```
+pub fn lsystem_step(axiom: &str, rules: &[LRule]) -> String {
+    // ADVANCE-EXCEPTION: fold builds the output string incrementally.
+    // Pure from caller's perspective: &str + &[LRule] -> String
+    let mut result = String::with_capacity(axiom.len() * 2);
+    for c in axiom.chars() {
+        match rules.iter().find(|r| r.symbol == c) {
+            Some(rule) => result.push_str(rule.replacement),
+            None => result.push(c),
+        }
+    }
+    result
+}
+
+/// Apply n generations of L-system rules. Pure fold over generations.
+///
+/// # Math
+/// σⁿ(ω) = σ(σ(...σ(ω)...)) applied `generations` times.
+///
+/// # Example
+/// ```rust
+/// use prime_dynamics::{LRule, lsystem_generate};
+/// let rules = vec![
+///     LRule { symbol: 'A', replacement: "AB" },
+///     LRule { symbol: 'B', replacement: "A" },
+/// ];
+/// let gen5 = lsystem_generate("A", &rules, 5);
+/// assert_eq!(gen5, "ABAABABAABAAB");
+/// ```
+pub fn lsystem_generate(axiom: &str, rules: &[LRule], generations: usize) -> String {
+    (0..generations).fold(axiom.to_string(), |current, _| lsystem_step(&current, rules))
+}
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
@@ -669,5 +729,79 @@ mod tests {
     fn gray_scott_zero_dt_no_change() {
         let (u, v) = gray_scott_step(0.5, 0.3, 0.1, 0.1, 0.04, 0.06, 0.0);
         assert!((u - 0.5).abs() < EPSILON && (v - 0.3).abs() < EPSILON);
+    }
+
+    // ── lsystem_step / lsystem_generate ──────────────────────────────────────
+
+    #[test]
+    fn lsystem_algae() {
+        // Classic Lindenmayer algae: A->AB, B->A
+        let rules = vec![
+            LRule { symbol: 'A', replacement: "AB" },
+            LRule { symbol: 'B', replacement: "A" },
+        ];
+        assert_eq!(lsystem_step("A", &rules), "AB");
+        assert_eq!(lsystem_step("AB", &rules), "ABA");
+        assert_eq!(lsystem_step("ABA", &rules), "ABAAB");
+    }
+
+    #[test]
+    fn lsystem_fibonacci_length() {
+        // L-system produces Fibonacci sequence in string lengths
+        let rules = vec![
+            LRule { symbol: 'A', replacement: "AB" },
+            LRule { symbol: 'B', replacement: "A" },
+        ];
+        let lengths: Vec<usize> = (0..8).fold((vec![1], "A".to_string()), |(mut lens, s), _| {
+            let next = lsystem_step(&s, &rules);
+            lens.push(next.len());
+            (lens, next)
+        }).0;
+        // Fibonacci: 1, 2, 3, 5, 8, 13, 21, 34
+        assert_eq!(&lengths[..8], &[1, 2, 3, 5, 8, 13, 21, 34]);
+    }
+
+    #[test]
+    fn lsystem_koch_curve() {
+        // Koch curve: F->F+F-F-F+F
+        let rules = vec![
+            LRule { symbol: 'F', replacement: "F+F-F-F+F" },
+        ];
+        let gen1 = lsystem_step("F", &rules);
+        assert_eq!(gen1, "F+F-F-F+F");
+        // + and - are preserved (no rule)
+    }
+
+    #[test]
+    fn lsystem_identity_for_unmapped() {
+        let rules = vec![
+            LRule { symbol: 'A', replacement: "B" },
+        ];
+        assert_eq!(lsystem_step("AXA", &rules), "BXB");
+    }
+
+    #[test]
+    fn lsystem_empty_axiom() {
+        let rules = vec![LRule { symbol: 'A', replacement: "B" }];
+        assert_eq!(lsystem_step("", &rules), "");
+    }
+
+    #[test]
+    fn lsystem_generate_multi_step() {
+        let rules = vec![
+            LRule { symbol: 'A', replacement: "AB" },
+            LRule { symbol: 'B', replacement: "A" },
+        ];
+        assert_eq!(lsystem_generate("A", &rules, 0), "A");
+        assert_eq!(lsystem_generate("A", &rules, 1), "AB");
+        assert_eq!(lsystem_generate("A", &rules, 5), "ABAABABAABAAB");
+    }
+
+    #[test]
+    fn lsystem_deterministic() {
+        let rules = vec![
+            LRule { symbol: 'F', replacement: "FF" },
+        ];
+        assert_eq!(lsystem_generate("F", &rules, 3), lsystem_generate("F", &rules, 3));
     }
 }

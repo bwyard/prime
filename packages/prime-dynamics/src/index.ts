@@ -333,6 +333,47 @@ export const grayScottStep = (
   return [u + duDt * dt, v + dvDt * dt]
 }
 
+// ── L-systems ────────────────────────────────────────────────────────────────
+
+/** Single L-system production rule: maps a character to its replacement string. */
+export type LRule = { readonly symbol: string; readonly replacement: string }
+
+/**
+ * Apply one L-system generation step. Pure LOAD + COMPUTE + APPEND.
+ *
+ * Each character in `axiom` is replaced by its matching rule's replacement string.
+ * Characters without matching rules are copied unchanged (identity rule).
+ *
+ * Math:
+ *   L-system: G = (V, w, P) where V = alphabet, w = axiom, P = production rules.
+ *   Each generation: sigma(w) = P(c1) ++ P(c2) ++ ... ++ P(cn)
+ *
+ * @param axiom - current string state
+ * @param rules - production rules
+ * @returns next generation string
+ */
+export const lsystemStep = (axiom: string, rules: readonly LRule[]): string =>
+  Array.from(axiom).map(c => {
+    const rule = rules.find(r => r.symbol === c)
+    return rule ? rule.replacement : c
+  }).join('')
+
+/**
+ * Apply n generations of L-system rules. Pure fold over generations.
+ *
+ * Math: sigma^n(w) = sigma(sigma(...sigma(w)...)) applied `generations` times.
+ *
+ * @param axiom       - initial axiom string
+ * @param rules       - production rules
+ * @param generations - number of generations to apply
+ * @returns string after n generations
+ */
+export const lsystemGenerate = (axiom: string, rules: readonly LRule[], generations: number): string =>
+  Array.from({ length: generations }).reduce<string>(
+    (current) => lsystemStep(current, rules),
+    axiom,
+  )
+
 // ── Duffing oscillator ────────────────────────────────────────────────────────
 
 export const duffingStep = (
