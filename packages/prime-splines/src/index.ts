@@ -280,6 +280,176 @@ export const bSplineCubic3d = (
  * slerp(0, [0,0,0,1], [0,0,1,0]) // identity quaternion
  * slerp(1, [0,0,0,1], [0,0,1,0]) // [0,0,1,0]
  */
+// ── Arc length ───────────────────────────────────────────────────────────────
+
+/**
+ * Approximate arc length of a 1-D cubic Bezier by subdividing into `steps` linear segments.
+ *
+ * Math: `L ≈ Σ |B(t_i) - B(t_{i-1})|`
+ *
+ * @param p0    - start point
+ * @param p1    - first control point
+ * @param p2    - second control point
+ * @param p3    - end point
+ * @param steps - number of linear segments
+ * @returns approximate arc length
+ *
+ * @example
+ * bezierCubicArcLength(0, 1, 2, 3, 100) // ≈ 3.0 (straight line)
+ */
+export const bezierCubicArcLength = (
+  p0: number,
+  p1: number,
+  p2: number,
+  p3: number,
+  steps: number,
+): number =>
+  Array.from({ length: steps }, (_, i) => i + 1).reduce(
+    ([acc, prev]: [number, number], i) => {
+      const t = i / steps
+      const curr = bezierCubic(t, p0, p1, p2, p3)
+      return [acc + Math.abs(curr - prev), curr] as [number, number]
+    },
+    [0, p0] as [number, number],
+  )[0]
+
+/**
+ * Approximate arc length of a 3-D cubic Bezier by subdividing into `steps` linear segments.
+ *
+ * Math: `L ≈ Σ |B(t_i) - B(t_{i-1})|` (Euclidean distance in 3-D)
+ *
+ * @param p0    - start `[x, y, z]`
+ * @param p1    - first control `[x, y, z]`
+ * @param p2    - second control `[x, y, z]`
+ * @param p3    - end `[x, y, z]`
+ * @param steps - number of linear segments
+ * @returns approximate arc length
+ */
+export const bezierCubicArcLength3d = (
+  p0: [number, number, number],
+  p1: [number, number, number],
+  p2: [number, number, number],
+  p3: [number, number, number],
+  steps: number,
+): number =>
+  Array.from({ length: steps }, (_, i) => i + 1).reduce(
+    ([acc, prev]: [number, [number, number, number]], i) => {
+      const t = i / steps
+      const curr = bezierCubic3d(t, p0, p1, p2, p3)
+      const dx = curr[0] - prev[0]
+      const dy = curr[1] - prev[1]
+      const dz = curr[2] - prev[2]
+      return [acc + Math.sqrt(dx * dx + dy * dy + dz * dz), curr] as [number, [number, number, number]]
+    },
+    [0, p0] as [number, [number, number, number]],
+  )[0]
+
+/**
+ * Find the parameter `t` corresponding to a target arc length along a 1-D cubic Bezier.
+ *
+ * Uses binary search over `t` in [0, 1].
+ *
+ * @param p0           - start point
+ * @param p1           - first control point
+ * @param p2           - second control point
+ * @param p3           - end point
+ * @param targetLength - desired arc length from t=0
+ * @param steps        - subdivision count for each arc-length measurement
+ * @param iterations   - number of binary-search bisection steps
+ * @returns `t` where arc length from 0 equals `targetLength`
+ *
+ * @example
+ * bezierCubicTAtLength(0, 1, 2, 3, 1.5, 100, 20) // ≈ 0.5
+ */
+export const bezierCubicTAtLength = (
+  p0: number,
+  p1: number,
+  p2: number,
+  p3: number,
+  targetLength: number,
+  steps: number,
+  iterations: number,
+): number => {
+  const arcLengthTo = (tMax: number): number => {
+    if (tMax <= 0) return 0
+    return Array.from({ length: steps }, (_, i) => i + 1).reduce(
+      ([acc, prev]: [number, number], i) => {
+        const t = (tMax * i) / steps
+        const curr = bezierCubic(t, p0, p1, p2, p3)
+        return [acc + Math.abs(curr - prev), curr] as [number, number]
+      },
+      [0, p0] as [number, number],
+    )[0]
+  }
+
+  // ADVANCE-EXCEPTION: binary search requires mutable bounds
+  let lo = 0
+  let hi = 1
+  for (let iter = 0; iter < iterations; iter++) {
+    const mid = (lo + hi) * 0.5
+    if (arcLengthTo(mid) < targetLength) {
+      lo = mid
+    } else {
+      hi = mid
+    }
+  }
+  return (lo + hi) * 0.5
+}
+
+/**
+ * Find the parameter `t` corresponding to a target arc length along a 3-D cubic Bezier.
+ *
+ * Uses binary search over `t` in [0, 1].
+ *
+ * @param p0           - start `[x, y, z]`
+ * @param p1           - first control `[x, y, z]`
+ * @param p2           - second control `[x, y, z]`
+ * @param p3           - end `[x, y, z]`
+ * @param targetLength - desired arc length from t=0
+ * @param steps        - subdivision count for each arc-length measurement
+ * @param iterations   - number of binary-search bisection steps
+ * @returns `t` where arc length from 0 equals `targetLength`
+ */
+export const bezierCubicTAtLength3d = (
+  p0: [number, number, number],
+  p1: [number, number, number],
+  p2: [number, number, number],
+  p3: [number, number, number],
+  targetLength: number,
+  steps: number,
+  iterations: number,
+): number => {
+  const arcLengthTo = (tMax: number): number => {
+    if (tMax <= 0) return 0
+    return Array.from({ length: steps }, (_, i) => i + 1).reduce(
+      ([acc, prev]: [number, [number, number, number]], i) => {
+        const t = (tMax * i) / steps
+        const curr = bezierCubic3d(t, p0, p1, p2, p3)
+        const dx = curr[0] - prev[0]
+        const dy = curr[1] - prev[1]
+        const dz = curr[2] - prev[2]
+        return [acc + Math.sqrt(dx * dx + dy * dy + dz * dz), curr] as [number, [number, number, number]]
+      },
+      [0, p0] as [number, [number, number, number]],
+    )[0]
+  }
+
+  // ADVANCE-EXCEPTION: binary search requires mutable bounds
+  let lo = 0
+  let hi = 1
+  for (let iter = 0; iter < iterations; iter++) {
+    const mid = (lo + hi) * 0.5
+    if (arcLengthTo(mid) < targetLength) {
+      lo = mid
+    } else {
+      hi = mid
+    }
+  }
+  return (lo + hi) * 0.5
+}
+
+// ── Slerp ─────────────────────────────────────────────────────────────────────
+
 export const slerp = (
   t: number,
   q0: [number, number, number, number],
