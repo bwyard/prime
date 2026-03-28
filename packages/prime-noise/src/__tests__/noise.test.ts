@@ -13,6 +13,7 @@ import {
   valueNoise3d, perlin3d, fbm3d,
   simplex2d, simplex3d,
   domainWarp2d, domainWarp3d,
+  curl2d, curl3d,
 } from '../index'
 
 const EPSILON = 1e-5
@@ -396,6 +397,71 @@ describe('domainWarp3d', () => {
 
   it('differs from plain fbm3d', () => {
     expect(domainWarp3d(0.3, 0.7, 0.2, 4, 2, 0.5, 1)).not.toBe(fbm3d(0.3, 0.7, 0.2, 4, 2, 0.5))
+  })
+})
+
+// ---------------------------------------------------------------------------
+// curl2d
+// ---------------------------------------------------------------------------
+
+describe('curl2d', () => {
+  it('returns finite values', () => {
+    const [cx, cy] = curl2d(1.0, 2.0, 0.01)
+    expect(Number.isFinite(cx)).toBe(true)
+    expect(Number.isFinite(cy)).toBe(true)
+  })
+
+  it('is deterministic', () => {
+    const a = curl2d(0.5, 0.5, 0.01)
+    const b = curl2d(0.5, 0.5, 0.01)
+    expect(a[0]).toBe(b[0])
+    expect(a[1]).toBe(b[1])
+  })
+
+  it('different coordinates produce different vectors', () => {
+    const a = curl2d(0.3, 0.7, 0.01)
+    const b = curl2d(0.7, 0.3, 0.01)
+    expect(a[0] === b[0] && a[1] === b[1]).toBe(false)
+  })
+
+  it('returns zero-ish vectors at integer lattice points (perlin is 0)', () => {
+    // perlin2d is 0 at integer points, so central differences around them may be small
+    const [cx, cy] = curl2d(0.0, 0.0, 0.001)
+    expect(Math.abs(cx)).toBeLessThan(2)
+    expect(Math.abs(cy)).toBeLessThan(2)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// curl3d
+// ---------------------------------------------------------------------------
+
+describe('curl3d', () => {
+  it('returns finite values', () => {
+    const [cx, cy, cz] = curl3d(1.0, 2.0, 3.0, 0.01)
+    expect(Number.isFinite(cx)).toBe(true)
+    expect(Number.isFinite(cy)).toBe(true)
+    expect(Number.isFinite(cz)).toBe(true)
+  })
+
+  it('is deterministic', () => {
+    const a = curl3d(0.5, 0.5, 0.5, 0.01)
+    const b = curl3d(0.5, 0.5, 0.5, 0.01)
+    expect(a[0]).toBe(b[0])
+    expect(a[1]).toBe(b[1])
+    expect(a[2]).toBe(b[2])
+  })
+
+  it('different coordinates produce different vectors', () => {
+    const a = curl3d(0.3, 0.7, 0.2, 0.01)
+    const b = curl3d(0.7, 0.3, 0.2, 0.01)
+    expect(a[0] === b[0] && a[1] === b[1] && a[2] === b[2]).toBe(false)
+  })
+
+  it('produces non-trivial output at non-lattice points', () => {
+    const [cx, cy, cz] = curl3d(0.5, 0.5, 0.5, 0.01)
+    const mag = Math.sqrt(cx * cx + cy * cy + cz * cz)
+    expect(mag).toBeGreaterThan(0)
   })
 })
 

@@ -701,3 +701,73 @@ export const domainWarp3d = (
     octaves, lacunarity, gain,
   )
 }
+
+// ---------------------------------------------------------------------------
+// Curl noise
+// ---------------------------------------------------------------------------
+
+/**
+ * 2D curl noise — divergence-free 2D vector field from Perlin noise.
+ *
+ * Math: `curl = (dN/dy, -dN/dx)` via central differences with step `eps`.
+ *
+ * @param x   - x coordinate
+ * @param y   - y coordinate
+ * @param eps - finite-difference step size (e.g. 0.01)
+ * @returns `[curl_x, curl_y]` — a divergence-free 2D vector
+ *
+ * @example
+ * ```ts
+ * const [cx, cy] = curl2d(1.0, 2.0, 0.01)
+ * ```
+ */
+export const curl2d = (x: number, y: number, eps: number): [number, number] => {
+  const dnDy = (perlin2d(x, y + eps) - perlin2d(x, y - eps)) / (2.0 * eps)
+  const dnDx = (perlin2d(x + eps, y) - perlin2d(x - eps, y)) / (2.0 * eps)
+  return [dnDy, -dnDx]
+}
+
+/**
+ * 3D curl noise — divergence-free 3D vector field.
+ *
+ * Uses three decorrelated Perlin noise fields (offset spatially) and computes:
+ * ```
+ * curl = (dN3/dy - dN2/dz, dN1/dz - dN3/dx, dN2/dx - dN1/dy)
+ * ```
+ * Partial derivatives via central differences with step `eps`.
+ *
+ * @param x   - x coordinate
+ * @param y   - y coordinate
+ * @param z   - z coordinate
+ * @param eps - finite-difference step size (e.g. 0.01)
+ * @returns `[curl_x, curl_y, curl_z]` — a divergence-free 3D vector
+ *
+ * @example
+ * ```ts
+ * const [cx, cy, cz] = curl3d(1.0, 2.0, 3.0, 0.01)
+ * ```
+ */
+export const curl3d = (x: number, y: number, z: number, eps: number): [number, number, number] => {
+  const O2: [number, number, number] = [5.2, 1.3, 2.7]
+  const O3: [number, number, number] = [3.1, 7.4, 0.9]
+
+  const inv2eps = 1.0 / (2.0 * eps)
+
+  // dN1/dy, dN1/dz
+  const dn1Dy = (perlin3d(x, y + eps, z) - perlin3d(x, y - eps, z)) * inv2eps
+  const dn1Dz = (perlin3d(x, y, z + eps) - perlin3d(x, y, z - eps)) * inv2eps
+
+  // dN2/dx, dN2/dz
+  const dn2Dx = (perlin3d(x + eps + O2[0], y + O2[1], z + O2[2])
+               - perlin3d(x - eps + O2[0], y + O2[1], z + O2[2])) * inv2eps
+  const dn2Dz = (perlin3d(x + O2[0], y + O2[1], z + eps + O2[2])
+               - perlin3d(x + O2[0], y + O2[1], z - eps + O2[2])) * inv2eps
+
+  // dN3/dx, dN3/dy
+  const dn3Dx = (perlin3d(x + eps + O3[0], y + O3[1], z + O3[2])
+               - perlin3d(x - eps + O3[0], y + O3[1], z + O3[2])) * inv2eps
+  const dn3Dy = (perlin3d(x + O3[0], y + eps + O3[1], z + O3[2])
+               - perlin3d(x + O3[0], y - eps + O3[1], z + O3[2])) * inv2eps
+
+  return [dn3Dy - dn2Dz, dn1Dz - dn3Dx, dn2Dx - dn1Dy]
+}
