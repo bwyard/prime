@@ -275,24 +275,11 @@ pub fn monte_carlo_1d(seed: u32, f: fn(f32) -> f32, a: f32, b: f32, n: usize) ->
     (width * sum / n as f32, final_seed)
 }
 
-/// 2D Monte Carlo integration over [x0, x1] × [y0, y1].
+/// 2D Monte Carlo integration over `[x0, x1] x [y0, y1]`.
 ///
-/// # Math
-///   estimate = area / n * Σ f(x_i, y_i)
-///
-/// # Arguments
-/// * `seed` - Thread position
-/// * `f` - Integrand
-/// * `x0`, `x1` - X bounds
-/// * `y0`, `y1` - Y bounds
-/// * `n` - Number of samples
-///
-/// # Returns
-/// `(estimate, final_seed)`.
-///
-/// # Example
+/// `estimate = area / n * Σ f(x_i, y_i)`.
 /// ```rust
-/// use prime_random::monte_carlo_2d;
+/// # use prime_random::monte_carlo_2d;
 /// let (est, _s) = monte_carlo_2d(42, |x, y| x * y, 0.0, 1.0, 0.0, 1.0, 10000);
 /// assert!((est - 0.25).abs() < 0.05);
 /// ```
@@ -314,17 +301,9 @@ pub fn monte_carlo_2d(
 
 /// 1D Monte Carlo with Welford's online variance estimate.
 ///
-/// # Math
-///   Uses Welford's algorithm for numerically stable running variance.
-///   estimate = mean(f(x_i)) * (b - a)
-///   variance = var(f(x_i)) * (b - a)^2
-///
-/// # Returns
-/// `(estimate, variance, final_seed)`.
-///
-/// # Example
+/// `estimate = mean(f(x_i)) * (b - a)`, variance via numerically stable running sum.
 /// ```rust
-/// use prime_random::monte_carlo_1d_with_variance;
+/// # use prime_random::monte_carlo_1d_with_variance;
 /// let (est, var, _s) = monte_carlo_1d_with_variance(42, |x| x.sin(), 0.0, std::f32::consts::PI, 10000);
 /// assert!((est - 2.0).abs() < 0.1);
 /// assert!(var > 0.0);
@@ -437,28 +416,15 @@ fn bridson_step(state: &BridsonState, p: &BridsonParams) -> BridsonState {
     }
 }
 
-/// Poisson disk sampling — minimum distance spacing in 2D. Pure LOAD + COMPUTE.
+/// Poisson disk sampling — minimum-distance spacing in 2D.
 ///
-/// # Math
-/// Bridson's algorithm (2007) expressed as a pure state fold (ADVANCE).
-/// Each step is (state) → new_state. No mutable shared state.
+/// Bridson's algorithm (2007) as a pure state fold (ADVANCE).
+/// Each step is `(state) -> new_state`. No mutable shared state.
 ///
-/// Performance note: each step clones the spatial grid O(cols×rows).
-/// Typical game domains (< 2000×2000, min_dist > 5) are negligible.
-///
-/// # Arguments
-/// * `seed` - Thread position — same seed → same distribution
-/// * `width` - Sampling domain width
-/// * `height` - Sampling domain height
-/// * `min_dist` - Minimum distance between any two points
-/// * `max_attempts` - Candidates per active point (30 is standard)
-///
-/// # Returns
-/// `(Vec<(f32, f32)>, u32)` — point pairs all at least `min_dist` apart, and the final seed.
-///
-/// # Example
+/// Performance: each step clones the spatial grid O(cols x rows).
+/// Typical game domains (< 2000x2000, min_dist > 5) are negligible.
 /// ```rust
-/// use prime_random::poisson_disk_2d;
+/// # use prime_random::poisson_disk_2d;
 /// let (pts, _seed) = poisson_disk_2d(42, 100.0, 100.0, 10.0, 30);
 /// assert!(!pts.is_empty());
 /// ```
