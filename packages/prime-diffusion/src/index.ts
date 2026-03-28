@@ -3,7 +3,7 @@
  *
  * All exported functions are pure (LOAD + COMPUTE only). No mutation, no side effects.
  * Noise is either caller-supplied (standard normal `w`) or generated deterministically
- * from a threaded `bigint` seed (mirrors Rust `u64` seed threading).
+ * from a threaded `u32` seed via Mulberry32 + Box-Muller (matching prime-random).
  *
  * Temporal assembly:
  *   LOAD    ← state, parameters, seed
@@ -11,44 +11,30 @@
  *   APPEND  ← return [nextValue, nextSeed] tuple
  */
 
-// ── Internal noise helpers ────────────────────────────────────────────────────
+// ── Internal noise helpers (Mulberry32 + Box-Muller) ─────────────────────────
 
 /**
- * Xorshift64 PRNG: maps a bigint seed to [uniform_01, nextSeed].
- *
- * Uses BigInt arithmetic to mirror Rust's wrapping u64 xorshift.
- * Period = 2⁶⁴ − 1.
+ * Mulberry32 pure step — matches prime-random's prngNext.
+ * Returns [value in [0,1), nextSeed].
  */
-const xorshift64 = (seed: bigint): [number, bigint] => {
-  const MASK = 0xFFFF_FFFF_FFFF_FFFFn
-  const s0 = (seed ^ ((seed << 13n) & MASK)) & MASK
-  const s1 = (s0 ^ (s0 >> 7n)) & MASK
-  const s2 = (s1 ^ ((s1 << 17n) & MASK)) & MASK
-  const u = Number(s2 & 0xFFFF_FFFFn) / 4294967295
-  return [u, s2]
+const mulberry32 = (seed: number): [number, number] => {
+  const z0 = (seed + 0x6D2B79F5) >>> 0
+  const z1 = Math.imul(z0 ^ (z0 >>> 15), z0 | 1)
+  const z2 = z1 ^ (z1 + Math.imul(z1 ^ (z1 >>> 7), z1 | 61))
+  return [((z2 ^ (z2 >>> 14)) >>> 0) / 0x100000000, z0]
 }
 
 /**
- * Box-Muller transform: two independent U(0,1) samples → standard normal.
+ * Draw one standard-normal sample from a u32 seed via Box-Muller.
  *
- * @param u1 - uniform in (0, 1] (must be > 0)
- * @param u2 - uniform in [0, 1)
- * @returns one sample from N(0, 1)
- */
-const boxMuller = (u1: number, u2: number): number =>
-  Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2)
-
-/**
- * Draw one standard-normal sample from a bigint seed.
- *
- * @param seed - non-zero bigint RNG state
+ * @param seed - non-zero u32 RNG state
  * @returns [z, nextSeed] where z ~ N(0, 1)
  */
-const normalFromSeed = (seed: bigint): [number, bigint] => {
-  const [u1raw, s1] = xorshift64(seed)
-  const [u2, s2] = xorshift64(s1)
-  const u1 = u1raw < Number.EPSILON ? Number.EPSILON : u1raw
-  return [boxMuller(u1, u2), s2]
+const gaussianFromSeed = (seed: number): [number, number] => {
+  const [u1raw, s1] = mulberry32(seed)
+  const [u2, s2] = mulberry32(s1)
+  const u1 = u1raw < 1e-10 ? 1e-10 : u1raw
+  return [Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2), s2]
 }
 
 // ── Ornstein-Uhlenbeck ────────────────────────────────────────────────────────
@@ -56,13 +42,7 @@ const normalFromSeed = (seed: bigint): [number, bigint] => {
 /**
  * Ornstein-Uhlenbeck step with caller-supplied noise.
  *
- * The O-U process is the canonical mean-reverting stochastic process.
- * Useful for economy curves, rival activity, and weather systems in simulations.
- *
- * Math:
- * ```
- * x' = x + θ(μ − x)dt + σ√dt · w
- * ```
+ * Math: `x' = x + θ(μ − x)dt + σ√dt · w`
  *
  * @param x     - current value
  * @param mu    - long-run mean (equilibrium point)
@@ -73,7 +53,6 @@ const normalFromSeed = (seed: bigint): [number, bigint] => {
  * @returns next value x'
  *
  * @example
- * // Noiseless convergence toward mu=0 from x=1
  * ouStep(1, 0, 0.5, 0, 0.1, 0) // 0.95
  */
 export const ouStep = (
@@ -88,15 +67,15 @@ export const ouStep = (
 /**
  * Ornstein-Uhlenbeck step with deterministic seeded noise.
  *
- * Generates one N(0,1) sample from `seed` via Box-Muller, applies ouStep,
- * and returns the advanced seed. Chain calls to build a stochastic time series.
+ * Generates one N(0,1) sample from `seed` via Mulberry32 + Box-Muller,
+ * applies ouStep, and returns the advanced seed.
  *
  * @param x, mu, theta, sigma, dt - same as ouStep
- * @param seed - bigint RNG seed (non-zero); mirrors Rust u64
+ * @param seed - u32 RNG seed (non-zero)
  * @returns [x_next, nextSeed]
  *
  * @example
- * const [x1, s1] = ouStepSeeded(1, 0, 0.5, 0.1, 0.01, 12345n)
+ * const [x1, s1] = ouStepSeeded(1, 0, 0.5, 0.1, 0.01, 12345)
  * const [x2, s2] = ouStepSeeded(x1, 0, 0.5, 0.1, 0.01, s1)
  */
 export const ouStepSeeded = (
@@ -105,9 +84,9 @@ export const ouStepSeeded = (
   theta: number,
   sigma: number,
   dt: number,
-  seed: bigint,
-): [number, bigint] => {
-  const [w, nextSeed] = normalFromSeed(seed)
+  seed: number,
+): [number, number] => {
+  const [w, nextSeed] = gaussianFromSeed(seed)
   return [ouStep(x, mu, theta, sigma, dt, w), nextSeed]
 }
 
@@ -116,13 +95,7 @@ export const ouStepSeeded = (
 /**
  * Geometric Brownian motion step with caller-supplied noise.
  *
- * GBM models multiplicative processes (always positive): resource prices,
- * guild reputation, skill multipliers.
- *
- * Math (exact solution for one step):
- * ```
- * x' = x · exp((μ − σ²/2)dt + σ√dt · w)
- * ```
+ * Math (exact solution): `x' = x · exp((μ − σ²/2)dt + σ√dt · w)`
  *
  * @param x     - current value (must be > 0)
  * @param mu    - drift rate
@@ -132,7 +105,6 @@ export const ouStepSeeded = (
  * @returns next value x' (always positive when x > 0)
  *
  * @example
- * // Zero drift, zero noise → unchanged
  * gbmStep(1, 0, 0, 0.1, 0) // 1.0
  */
 export const gbmStep = (
@@ -147,19 +119,19 @@ export const gbmStep = (
  * Geometric Brownian motion step with deterministic seeded noise.
  *
  * @param x, mu, sigma, dt - same as gbmStep
- * @param seed - bigint RNG seed
+ * @param seed - u32 RNG seed
  * @returns [x_next, nextSeed]
  *
  * @example
- * const [x1, s1] = gbmStepSeeded(1, 0.05, 0.2, 0.01, 42n)
+ * const [x1, s1] = gbmStepSeeded(1, 0.05, 0.2, 0.01, 42)
  */
 export const gbmStepSeeded = (
   x: number,
   mu: number,
   sigma: number,
   dt: number,
-  seed: bigint,
-): [number, bigint] => {
-  const [w, nextSeed] = normalFromSeed(seed)
+  seed: number,
+): [number, number] => {
+  const [w, nextSeed] = gaussianFromSeed(seed)
   return [gbmStep(x, mu, sigma, dt, w), nextSeed]
 }

@@ -6,6 +6,10 @@ import {
   lorenzStep,
   rosslerStep,
   duffingStep,
+  logistic,
+  lotkaVolterraStep,
+  sirStep,
+  grayScottStep,
   LORENZ_SIGMA,
   LORENZ_RHO,
   LORENZ_BETA,
@@ -190,5 +194,117 @@ describe('duffingStep', () => {
     const a = duffingStep([1, 0], 0.5, P, 0.01)
     const b = duffingStep([1, 0], 0.5, P, 0.01)
     expect(a).toEqual(b)
+  })
+})
+
+// ── logistic ─────────────────────────────────────────────────────────────────
+
+describe('logistic', () => {
+  it('fixed point at r=2, x=0.5', () => {
+    expect(logistic(0.5, 2)).toBeCloseTo(0.5, 5)
+  })
+
+  it('r=4 chaotic but stays in [0,1]', () => {
+    const x = Array.from<null>({ length: 1000 }).reduce(
+      ([x]: [number]): [number] => [logistic(x, 4)],
+      [0.1] as [number],
+    )[0]
+    expect(x).toBeGreaterThanOrEqual(0)
+    expect(x).toBeLessThanOrEqual(1)
+  })
+
+  it('x=0 is always a fixed point', () => {
+    expect(logistic(0, 3.9)).toBeCloseTo(0, 5)
+  })
+
+  it('deterministic', () => {
+    expect(logistic(0.3, 3.7)).toBe(logistic(0.3, 3.7))
+  })
+})
+
+// ── lotkaVolterraStep ────────────────────────────────────────────────────────
+
+describe('lotkaVolterraStep', () => {
+  it('populations stay positive over 1000 steps', () => {
+    const [x, y] = Array.from<null>({ length: 1000 }).reduce(
+      ([x, y]: [number, number]): [number, number] =>
+        lotkaVolterraStep(x, y, 1.1, 0.4, 0.1, 0.4, 0.01),
+      [1, 0.5] as [number, number],
+    )
+    expect(x).toBeGreaterThan(0)
+    expect(y).toBeGreaterThan(0)
+  })
+
+  it('bounded with small dt', () => {
+    const [x, y] = Array.from<null>({ length: 100 }).reduce(
+      ([x, y]: [number, number]): [number, number] =>
+        lotkaVolterraStep(x, y, 1.1, 0.4, 0.1, 0.4, 0.001),
+      [2, 1] as [number, number],
+    )
+    expect(x).toBeLessThan(100)
+    expect(y).toBeLessThan(100)
+  })
+
+  it('deterministic', () => {
+    const a = lotkaVolterraStep(1, 0.5, 1.1, 0.4, 0.1, 0.4, 0.01)
+    const b = lotkaVolterraStep(1, 0.5, 1.1, 0.4, 0.1, 0.4, 0.01)
+    expect(Math.abs(a[0] - b[0])).toBeLessThan(EPS)
+    expect(Math.abs(a[1] - b[1])).toBeLessThan(EPS)
+  })
+})
+
+// ── sirStep ──────────────────────────────────────────────────────────────────
+
+describe('sirStep', () => {
+  it('population is conserved over 1000 steps', () => {
+    const [s, i, r] = Array.from<null>({ length: 1000 }).reduce(
+      ([s, i, r]: [number, number, number]): [number, number, number] =>
+        sirStep(s, i, r, 0.3, 0.1, 0.1),
+      [0.99, 0.01, 0] as [number, number, number],
+    )
+    expect(Math.abs(s + i + r - 1)).toBeLessThan(EPS)
+  })
+
+  it('no infected means no change', () => {
+    const [s, i, r] = sirStep(1, 0, 0, 0.3, 0.1, 0.1)
+    expect(s).toBeCloseTo(1, 5)
+    expect(i).toBeCloseTo(0, 5)
+    expect(r).toBeCloseTo(0, 5)
+  })
+
+  it('deterministic', () => {
+    const a = sirStep(0.99, 0.01, 0, 0.3, 0.1, 0.1)
+    const b = sirStep(0.99, 0.01, 0, 0.3, 0.1, 0.1)
+    expect(Math.abs(a[0] - b[0])).toBeLessThan(EPS)
+    expect(Math.abs(a[1] - b[1])).toBeLessThan(EPS)
+    expect(Math.abs(a[2] - b[2])).toBeLessThan(EPS)
+  })
+})
+
+// ── grayScottStep ────────────────────────────────────────────────────────────
+
+describe('grayScottStep', () => {
+  it('stable without v', () => {
+    const [u, v] = grayScottStep(1, 0, 0, 0, 0.04, 0.06, 0.01)
+    expect(u).toBeCloseTo(1, 4)
+    expect(v).toBeCloseTo(0, 4)
+  })
+
+  it('reaction occurs when both u and v are present', () => {
+    const [u1, v1] = grayScottStep(0.5, 0.25, 0, 0, 0.04, 0.06, 0.1)
+    expect(Math.abs(u1 - 0.5) > EPS || Math.abs(v1 - 0.25) > EPS).toBe(true)
+  })
+
+  it('deterministic', () => {
+    const a = grayScottStep(0.5, 0.25, 0.1, -0.05, 0.04, 0.06, 0.01)
+    const b = grayScottStep(0.5, 0.25, 0.1, -0.05, 0.04, 0.06, 0.01)
+    expect(Math.abs(a[0] - b[0])).toBeLessThan(EPS)
+    expect(Math.abs(a[1] - b[1])).toBeLessThan(EPS)
+  })
+
+  it('zero dt — no change', () => {
+    const [u, v] = grayScottStep(0.5, 0.3, 0.1, 0.1, 0.04, 0.06, 0)
+    expect(u).toBeCloseTo(0.5, 5)
+    expect(v).toBeCloseTo(0.3, 5)
   })
 })

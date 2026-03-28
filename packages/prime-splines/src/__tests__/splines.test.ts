@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest'
 import {
   bezierQuadratic, bezierQuadratic3d,
   bezierCubic, bezierCubic3d,
+  bezierCubicArcLength, bezierCubicArcLength3d,
+  bezierCubicTAtLength, bezierCubicTAtLength3d,
   hermite, hermite3d,
   catmullRom, catmullRom3d,
   bSplineCubic, bSplineCubic3d,
@@ -144,6 +146,80 @@ describe('bSplineCubic3d', () => {
   it('collinear midpoint', () => {
     const [x] = bSplineCubic3d(0.5, [0,0,0], [1,0,0], [2,0,0], [3,0,0])
     expect(x).toBeCloseTo(1.5, 4)
+  })
+})
+
+// ── bezierCubicArcLength ─────────────────────────────────────────────────────
+
+describe('bezierCubicArcLength', () => {
+  it('straight line 0→3 has arc length ≈ 3', () => {
+    expect(bezierCubicArcLength(0, 1, 2, 3, 100)).toBeCloseTo(3, 1)
+  })
+
+  it('zero-length curve (all points equal)', () => {
+    expect(bezierCubicArcLength(1, 1, 1, 1, 100)).toBeCloseTo(0, 5)
+  })
+
+  it('deterministic', () => {
+    expect(bezierCubicArcLength(0, 1, 2, 3, 50)).toBe(bezierCubicArcLength(0, 1, 2, 3, 50))
+  })
+})
+
+describe('bezierCubicArcLength3d', () => {
+  it('straight line along x-axis has arc length ≈ 3', () => {
+    expect(bezierCubicArcLength3d(
+      [0, 0, 0], [1, 0, 0], [2, 0, 0], [3, 0, 0], 100,
+    )).toBeCloseTo(3, 1)
+  })
+
+  it('zero-length curve', () => {
+    expect(bezierCubicArcLength3d(
+      [1, 1, 1], [1, 1, 1], [1, 1, 1], [1, 1, 1], 100,
+    )).toBeCloseTo(0, 5)
+  })
+})
+
+// ── bezierCubicTAtLength ─────────────────────────────────────────────────────
+
+describe('bezierCubicTAtLength', () => {
+  it('half length of straight line 0→3 at t≈0.5', () => {
+    const t = bezierCubicTAtLength(0, 1, 2, 3, 1.5, 100, 20)
+    expect(Math.abs(t - 0.5)).toBeLessThan(0.01)
+  })
+
+  it('zero target length → t≈0', () => {
+    const t = bezierCubicTAtLength(0, 1, 2, 3, 0, 100, 20)
+    expect(t).toBeLessThan(0.01)
+  })
+
+  it('full length → t≈1', () => {
+    const fullLen = bezierCubicArcLength(0, 1, 2, 3, 100)
+    const t = bezierCubicTAtLength(0, 1, 2, 3, fullLen, 100, 20)
+    expect(Math.abs(t - 1)).toBeLessThan(0.01)
+  })
+
+  it('deterministic', () => {
+    expect(bezierCubicTAtLength(0, 1, 2, 3, 1.5, 100, 20))
+      .toBe(bezierCubicTAtLength(0, 1, 2, 3, 1.5, 100, 20))
+  })
+})
+
+describe('bezierCubicTAtLength3d', () => {
+  it('half length of straight line along x-axis at t≈0.5', () => {
+    const t = bezierCubicTAtLength3d(
+      [0, 0, 0], [1, 0, 0], [2, 0, 0], [3, 0, 0], 1.5, 100, 20,
+    )
+    expect(Math.abs(t - 0.5)).toBeLessThan(0.01)
+  })
+
+  it('full length → t≈1', () => {
+    const fullLen = bezierCubicArcLength3d(
+      [0, 0, 0], [1, 0, 0], [2, 0, 0], [3, 0, 0], 100,
+    )
+    const t = bezierCubicTAtLength3d(
+      [0, 0, 0], [1, 0, 0], [2, 0, 0], [3, 0, 0], fullLen, 100, 20,
+    )
+    expect(Math.abs(t - 1)).toBeLessThan(0.01)
   })
 })
 

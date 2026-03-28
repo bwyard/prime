@@ -14,6 +14,7 @@ import {
   aabbContains,
   aabbOverlaps,
   aabbUnion,
+  frustumCullAabb,
   frustumCullSphere,
   rayAabb,
   rayPlane,
@@ -263,5 +264,41 @@ describe("frustumCullSphere", () => {
 
   it("does not cull a zero-radius sphere (point) inside the frustum", () => {
     expect(frustumCullSphere(UNIT_FRUSTUM, [0, 0, 0], 0)).toBe(false);
+  });
+});
+
+// ── frustumCullAabb ──────────────────────────────────────────────────────────
+
+describe("frustumCullAabb", () => {
+  it("returns true for an AABB fully inside the frustum", () => {
+    expect(frustumCullAabb([-0.5, -0.5, -0.5], [0.5, 0.5, 0.5], UNIT_FRUSTUM)).toBe(true);
+  });
+
+  it("returns false for an AABB fully outside the frustum", () => {
+    expect(frustumCullAabb([5, 5, 5], [6, 6, 6], UNIT_FRUSTUM)).toBe(false);
+  });
+
+  it("returns true for an AABB intersecting the frustum boundary", () => {
+    expect(frustumCullAabb([0.5, -0.5, -0.5], [2, 0.5, 0.5], UNIT_FRUSTUM)).toBe(true);
+  });
+
+  it("returns true for an AABB touching a plane exactly", () => {
+    expect(frustumCullAabb([0, 0, 0], [1, 1, 1], UNIT_FRUSTUM)).toBe(true);
+  });
+
+  it("returns true for a degenerate (point) AABB inside the frustum", () => {
+    expect(frustumCullAabb([0, 0, 0], [0, 0, 0], UNIT_FRUSTUM)).toBe(true);
+  });
+
+  it("returns false for a degenerate (point) AABB outside the frustum", () => {
+    expect(frustumCullAabb([5, 0, 0], [5, 0, 0], UNIT_FRUSTUM)).toBe(false);
+  });
+
+  it("returns true for a large AABB spanning the entire frustum", () => {
+    expect(frustumCullAabb([-100, -100, -100], [100, 100, 100], UNIT_FRUSTUM)).toBe(true);
+  });
+
+  it("returns false for an AABB outside a single axis", () => {
+    expect(frustumCullAabb([-5, -0.5, -0.5], [-3, 0.5, 0.5], UNIT_FRUSTUM)).toBe(false);
   });
 });

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { ouStep, ouStepSeeded, gbmStep, gbmStepSeeded } from '../index.js'
 
 const EPS = 1e-4
-const SEED = 0xDEAD_BEEF_1234_5678n
+const SEED = 0xDEAD_BEEF
 
 // ── ouStep ────────────────────────────────────────────────────────────────────
 
@@ -55,8 +55,8 @@ describe('ouStepSeeded', () => {
 
   it('100-step chain stays bounded near mu=0', () => {
     const [x] = Array.from<null>({ length: 100 }).reduce(
-      ([x, s]: [number, bigint]): [number, bigint] => ouStepSeeded(x, 0, 0.3, 0.5, 0.01, s),
-      [0, SEED] as [number, bigint],
+      ([x, s]: [number, number]): [number, number] => ouStepSeeded(x, 0, 0.3, 0.5, 0.01, s),
+      [0, SEED] as [number, number],
     )
     expect(Math.abs(x)).toBeLessThan(5)
   })
@@ -108,8 +108,8 @@ describe('gbmStepSeeded', () => {
 
   it('100-step chain stays positive', () => {
     const [x] = Array.from<null>({ length: 100 }).reduce(
-      ([x, s]: [number, bigint]): [number, bigint] => gbmStepSeeded(x, 0, 0.2, 0.01, s),
-      [1, SEED] as [number, bigint],
+      ([x, s]: [number, number]): [number, number] => gbmStepSeeded(x, 0, 0.2, 0.01, s),
+      [1, SEED] as [number, number],
     )
     expect(x).toBeGreaterThan(0)
   })
