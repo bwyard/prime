@@ -314,6 +314,7 @@ pub fn poisson_disk_2d(seed: f64, width: f32, height: f32, min_dist: f32, max_at
 #[wasm_bindgen] pub fn lfo_sine(phase: f32) -> f32 { prime_osc::lfo_sine(phase) }
 #[wasm_bindgen] pub fn lfo_triangle(phase: f32) -> f32 { prime_osc::lfo_triangle(phase) }
 #[wasm_bindgen] pub fn lfo_sawtooth(phase: f32) -> f32 { prime_osc::lfo_sawtooth(phase) }
+#[wasm_bindgen] pub fn lfo_cosine(phase: f32) -> f32 { prime_osc::lfo_cosine(phase) }
 /// Square LFO with pulse width [0, 1]. Use 0.5 for 50% duty cycle.
 #[wasm_bindgen] pub fn lfo_square(phase: f32, width: f32) -> f32 { prime_osc::lfo_square(phase, width) }
 

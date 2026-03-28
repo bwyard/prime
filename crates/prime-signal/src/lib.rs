@@ -251,6 +251,86 @@ pub fn deadzone(value: f32, deadzone: f32, curve: f32) -> f32 {
     v.signum() * shaped
 }
 
+use glam::{Vec2, Vec3};
+
+/// Smoothdamp for Vec2. Returns (new_value, new_velocity).
+///
+/// Component-wise application of [`smoothdamp`].
+///
+/// # Example
+/// ```rust
+/// # use prime_signal::smoothdamp_vec2;
+/// # use glam::Vec2;
+/// let (pos, _vel) = smoothdamp_vec2(
+///     Vec2::ZERO, Vec2::new(10.0, 5.0), Vec2::ZERO, 0.3, 0.016,
+/// );
+/// assert!(pos.x > 0.0);
+/// ```
+pub fn smoothdamp_vec2(current: Vec2, target: Vec2, velocity: Vec2, smooth_time: f32, dt: f32) -> (Vec2, Vec2) {
+    let (x, vx) = smoothdamp(current.x, target.x, velocity.x, smooth_time, dt);
+    let (y, vy) = smoothdamp(current.y, target.y, velocity.y, smooth_time, dt);
+    (Vec2::new(x, y), Vec2::new(vx, vy))
+}
+
+/// Smoothdamp for Vec3. Returns (new_value, new_velocity).
+///
+/// Component-wise application of [`smoothdamp`].
+///
+/// # Example
+/// ```rust
+/// # use prime_signal::smoothdamp_vec3;
+/// # use glam::Vec3;
+/// let (pos, _vel) = smoothdamp_vec3(
+///     Vec3::ZERO, Vec3::new(10.0, 5.0, 3.0), Vec3::ZERO, 0.3, 0.016,
+/// );
+/// assert!(pos.x > 0.0);
+/// ```
+pub fn smoothdamp_vec3(current: Vec3, target: Vec3, velocity: Vec3, smooth_time: f32, dt: f32) -> (Vec3, Vec3) {
+    let (x, vx) = smoothdamp(current.x, target.x, velocity.x, smooth_time, dt);
+    let (y, vy) = smoothdamp(current.y, target.y, velocity.y, smooth_time, dt);
+    let (z, vz) = smoothdamp(current.z, target.z, velocity.z, smooth_time, dt);
+    (Vec3::new(x, y, z), Vec3::new(vx, vy, vz))
+}
+
+/// Spring for Vec2. Returns (new_position, new_velocity).
+///
+/// Component-wise application of [`spring`].
+///
+/// # Example
+/// ```rust
+/// # use prime_signal::spring_vec2;
+/// # use glam::Vec2;
+/// let (pos, _vel) = spring_vec2(
+///     Vec2::ZERO, Vec2::ZERO, Vec2::new(10.0, 5.0), 100.0, 20.0, 0.016,
+/// );
+/// assert!(pos.x > 0.0);
+/// ```
+pub fn spring_vec2(pos: Vec2, vel: Vec2, target: Vec2, stiffness: f32, damping: f32, dt: f32) -> (Vec2, Vec2) {
+    let (x, vx) = spring(pos.x, vel.x, target.x, stiffness, damping, dt);
+    let (y, vy) = spring(pos.y, vel.y, target.y, stiffness, damping, dt);
+    (Vec2::new(x, y), Vec2::new(vx, vy))
+}
+
+/// Spring for Vec3. Returns (new_position, new_velocity).
+///
+/// Component-wise application of [`spring`].
+///
+/// # Example
+/// ```rust
+/// # use prime_signal::spring_vec3;
+/// # use glam::Vec3;
+/// let (pos, _vel) = spring_vec3(
+///     Vec3::ZERO, Vec3::ZERO, Vec3::new(10.0, 5.0, 3.0), 100.0, 20.0, 0.016,
+/// );
+/// assert!(pos.x > 0.0);
+/// ```
+pub fn spring_vec3(pos: Vec3, vel: Vec3, target: Vec3, stiffness: f32, damping: f32, dt: f32) -> (Vec3, Vec3) {
+    let (x, vx) = spring(pos.x, vel.x, target.x, stiffness, damping, dt);
+    let (y, vy) = spring(pos.y, vel.y, target.y, stiffness, damping, dt);
+    let (z, vz) = spring(pos.z, vel.z, target.z, stiffness, damping, dt);
+    (Vec3::new(x, y, z), Vec3::new(vx, vy, vz))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -437,5 +517,119 @@ mod tests {
         let (v, vel) = smoothdamp(0.0, 1.0, 0.0, 0.0, 0.016);
         assert!(v.is_finite() && vel.is_finite(),
             "smooth_time=0 must not produce NaN/Inf; v={v} vel={vel}");
+    }
+
+    // ── smoothdamp_vec2 ──
+
+    #[test]
+    fn smoothdamp_vec2_matches_scalar() {
+        let cur = Vec2::new(1.0, 2.0);
+        let tgt = Vec2::new(10.0, 20.0);
+        let vel = Vec2::new(0.5, -0.3);
+        let (pos2, vel2) = smoothdamp_vec2(cur, tgt, vel, 0.3, 0.016);
+        let (sx, svx) = smoothdamp(1.0, 10.0, 0.5, 0.3, 0.016);
+        let (sy, svy) = smoothdamp(2.0, 20.0, -0.3, 0.3, 0.016);
+        assert!((pos2.x - sx).abs() < EPSILON);
+        assert!((pos2.y - sy).abs() < EPSILON);
+        assert!((vel2.x - svx).abs() < EPSILON);
+        assert!((vel2.y - svy).abs() < EPSILON);
+    }
+
+    #[test]
+    fn smoothdamp_vec2_approaches_target() {
+        let mut pos = Vec2::ZERO;
+        let mut vel = Vec2::ZERO;
+        let target = Vec2::new(10.0, 5.0);
+        for _ in 0..200 {
+            (pos, vel) = smoothdamp_vec2(pos, target, vel, 0.3, 0.016);
+        }
+        assert!((pos - target).length() < 0.01);
+    }
+
+    // ── smoothdamp_vec3 ──
+
+    #[test]
+    fn smoothdamp_vec3_matches_scalar() {
+        let cur = Vec3::new(1.0, 2.0, 3.0);
+        let tgt = Vec3::new(10.0, 20.0, 30.0);
+        let vel = Vec3::new(0.5, -0.3, 1.0);
+        let (pos3, vel3) = smoothdamp_vec3(cur, tgt, vel, 0.3, 0.016);
+        let (sx, svx) = smoothdamp(1.0, 10.0, 0.5, 0.3, 0.016);
+        let (sy, svy) = smoothdamp(2.0, 20.0, -0.3, 0.3, 0.016);
+        let (sz, svz) = smoothdamp(3.0, 30.0, 1.0, 0.3, 0.016);
+        assert!((pos3.x - sx).abs() < EPSILON);
+        assert!((pos3.y - sy).abs() < EPSILON);
+        assert!((pos3.z - sz).abs() < EPSILON);
+        assert!((vel3.x - svx).abs() < EPSILON);
+        assert!((vel3.y - svy).abs() < EPSILON);
+        assert!((vel3.z - svz).abs() < EPSILON);
+    }
+
+    #[test]
+    fn smoothdamp_vec3_approaches_target() {
+        let mut pos = Vec3::ZERO;
+        let mut vel = Vec3::ZERO;
+        let target = Vec3::new(10.0, 5.0, 3.0);
+        for _ in 0..200 {
+            (pos, vel) = smoothdamp_vec3(pos, target, vel, 0.3, 0.016);
+        }
+        assert!((pos - target).length() < 0.01);
+    }
+
+    // ── spring_vec2 ──
+
+    #[test]
+    fn spring_vec2_matches_scalar() {
+        let pos = Vec2::new(1.0, 2.0);
+        let vel = Vec2::new(0.5, -0.3);
+        let tgt = Vec2::new(10.0, 20.0);
+        let (p2, v2) = spring_vec2(pos, vel, tgt, 100.0, 20.0, 0.016);
+        let (sx, svx) = spring(1.0, 0.5, 10.0, 100.0, 20.0, 0.016);
+        let (sy, svy) = spring(2.0, -0.3, 20.0, 100.0, 20.0, 0.016);
+        assert!((p2.x - sx).abs() < EPSILON);
+        assert!((p2.y - sy).abs() < EPSILON);
+        assert!((v2.x - svx).abs() < EPSILON);
+        assert!((v2.y - svy).abs() < EPSILON);
+    }
+
+    #[test]
+    fn spring_vec2_approaches_target() {
+        let mut pos = Vec2::ZERO;
+        let mut vel = Vec2::ZERO;
+        let target = Vec2::new(10.0, 5.0);
+        for _ in 0..500 {
+            (pos, vel) = spring_vec2(pos, vel, target, 100.0, 20.0, 0.016);
+        }
+        assert!((pos - target).length() < 0.01);
+    }
+
+    // ── spring_vec3 ──
+
+    #[test]
+    fn spring_vec3_matches_scalar() {
+        let pos = Vec3::new(1.0, 2.0, 3.0);
+        let vel = Vec3::new(0.5, -0.3, 1.0);
+        let tgt = Vec3::new(10.0, 20.0, 30.0);
+        let (p3, v3) = spring_vec3(pos, vel, tgt, 100.0, 20.0, 0.016);
+        let (sx, svx) = spring(1.0, 0.5, 10.0, 100.0, 20.0, 0.016);
+        let (sy, svy) = spring(2.0, -0.3, 20.0, 100.0, 20.0, 0.016);
+        let (sz, svz) = spring(3.0, 1.0, 30.0, 100.0, 20.0, 0.016);
+        assert!((p3.x - sx).abs() < EPSILON);
+        assert!((p3.y - sy).abs() < EPSILON);
+        assert!((p3.z - sz).abs() < EPSILON);
+        assert!((v3.x - svx).abs() < EPSILON);
+        assert!((v3.y - svy).abs() < EPSILON);
+        assert!((v3.z - svz).abs() < EPSILON);
+    }
+
+    #[test]
+    fn spring_vec3_approaches_target() {
+        let mut pos = Vec3::ZERO;
+        let mut vel = Vec3::ZERO;
+        let target = Vec3::new(10.0, 5.0, 3.0);
+        for _ in 0..500 {
+            (pos, vel) = spring_vec3(pos, vel, target, 100.0, 20.0, 0.016);
+        }
+        assert!((pos - target).length() < 0.01);
     }
 }
