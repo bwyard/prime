@@ -461,6 +461,184 @@ pub fn oklab_mix(
 }
 
 // ---------------------------------------------------------------------------
+// HSV ↔ sRGB
+// ---------------------------------------------------------------------------
+
+/// Convert sRGB to HSV. Returns `(h, s, v)` where `h` in `[0, 360)`, `s` and `v` in `[0, 1]`.
+///
+/// # Math
+///   max = max(r, g, b), min = min(r, g, b), delta = max - min
+///
+///   V = max
+///   S = 0              if max == 0
+///       delta / max    otherwise
+///   H = (same sector logic as HSL)
+///
+/// # Edge cases
+/// * Achromatic inputs → `h = 0`, `s = 0`
+/// * Pure black → `(0, 0, 0)`
+/// * Pure white → `(0, 0, 1)`
+///
+/// # Example
+/// ```rust
+/// let (h, s, v) = prime_color::srgb_to_hsv(1.0, 0.0, 0.0);
+/// assert!((h - 0.0).abs() < 1e-4);
+/// assert!((s - 1.0).abs() < 1e-4);
+/// assert!((v - 1.0).abs() < 1e-4);
+/// ```
+pub fn srgb_to_hsv(r: f32, g: f32, b: f32) -> (f32, f32, f32) {
+    let max = r.max(g).max(b);
+    let min = r.min(g).min(b);
+    let delta = max - min;
+    let v = max;
+    let s = if max == 0.0 { 0.0 } else { delta / max };
+    let h = if delta == 0.0 {
+        0.0
+    } else if max == r {
+        60.0 * (((g - b) / delta) % 6.0)
+    } else if max == g {
+        60.0 * ((b - r) / delta + 2.0)
+    } else {
+        60.0 * ((r - g) / delta + 4.0)
+    };
+    let h = if h < 0.0 { h + 360.0 } else { h };
+    (h, s, v)
+}
+
+/// Convert HSV to sRGB. `h` in `[0, 360)`, `s` and `v` in `[0, 1]`.
+///
+/// # Math
+///   C = V * S
+///   H' = H / 60
+///   X = C * (1 - |H' mod 2 - 1|)
+///   m = V - C
+///   Select (R1, G1, B1) by sector, then add m.
+///
+/// # Edge cases
+/// * `s == 0` → achromatic gray at value `v`
+/// * `v == 0` → black regardless of h or s
+///
+/// # Example
+/// ```rust
+/// let (r, g, b) = prime_color::hsv_to_srgb(120.0, 1.0, 1.0);
+/// assert!(r < 1e-4);
+/// assert!((g - 1.0).abs() < 1e-4);
+/// assert!(b < 1e-4);
+/// ```
+pub fn hsv_to_srgb(h: f32, s: f32, v: f32) -> (f32, f32, f32) {
+    let c = v * s;
+    let h2 = h / 60.0;
+    let x = c * (1.0 - ((h2 % 2.0) - 1.0).abs());
+    let m = v - c;
+    let (r, g, b) = if h2 < 1.0 {
+        (c, x, 0.0)
+    } else if h2 < 2.0 {
+        (x, c, 0.0)
+    } else if h2 < 3.0 {
+        (0.0, c, x)
+    } else if h2 < 4.0 {
+        (0.0, x, c)
+    } else if h2 < 5.0 {
+        (x, 0.0, c)
+    } else {
+        (c, 0.0, x)
+    };
+    (r + m, g + m, b + m)
+}
+
+// ---------------------------------------------------------------------------
+// Luminance utilities
+// ---------------------------------------------------------------------------
+
+/// Relative luminance (ITU-R BT.709). Input is linear RGB.
+///
+/// # Math
+///   Y = 0.2126 * R + 0.7152 * G + 0.0722 * B
+///
+/// # Example
+/// ```rust
+/// let y = prime_color::luminance(1.0, 1.0, 1.0);
+/// assert!((y - 1.0).abs() < 1e-4);
+/// ```
+pub fn luminance(r: f32, g: f32, b: f32) -> f32 {
+    0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+
+/// WCAG contrast ratio between two sRGB colors. Returns value >= 1.
+///
+/// # Math
+///   Converts both colors to linear RGB, computes relative luminance for each,
+///   then: ratio = (L_lighter + 0.05) / (L_darker + 0.05)
+///
+/// # Example
+/// ```rust
+/// // White on black has maximum contrast (~21:1).
+/// let ratio = prime_color::contrast_ratio(1.0, 1.0, 1.0, 0.0, 0.0, 0.0);
+/// assert!(ratio >= 20.9);
+/// ```
+pub fn contrast_ratio(r0: f32, g0: f32, b0: f32, r1: f32, g1: f32, b1: f32) -> f32 {
+    let (lr0, lg0, lb0) = srgb_to_linear(r0, g0, b0);
+    let (lr1, lg1, lb1) = srgb_to_linear(r1, g1, b1);
+    let l0 = luminance(lr0, lg0, lb0);
+    let l1 = luminance(lr1, lg1, lb1);
+    let (lighter, darker) = if l0 > l1 { (l0, l1) } else { (l1, l0) };
+    (lighter + 0.05) / (darker + 0.05)
+}
+
+// ---------------------------------------------------------------------------
+// Palette generation
+// ---------------------------------------------------------------------------
+
+/// Complementary color — rotate hue by 180 degrees in HSL.
+///
+/// # Example
+/// ```rust
+/// let (r, g, b) = prime_color::palette_complementary(1.0, 0.0, 0.0);
+/// // Red's complement is cyan
+/// assert!(r < 0.1);
+/// assert!((g - 1.0).abs() < 1e-3);
+/// assert!((b - 1.0).abs() < 1e-3);
+/// ```
+pub fn palette_complementary(r: f32, g: f32, b: f32) -> (f32, f32, f32) {
+    let (h, s, l) = srgb_to_hsl(r, g, b);
+    hsl_to_srgb((h + 180.0) % 360.0, s, l)
+}
+
+/// Triadic palette — two colors at +120 and +240 degrees in HSL.
+///
+/// # Example
+/// ```rust
+/// let ((r1, g1, b1), (r2, g2, b2)) = prime_color::palette_triadic(1.0, 0.0, 0.0);
+/// // Red → green-ish, blue-ish
+/// assert!(g1 > 0.9);
+/// assert!(b2 > 0.9);
+/// ```
+pub fn palette_triadic(r: f32, g: f32, b: f32) -> ((f32, f32, f32), (f32, f32, f32)) {
+    let (h, s, l) = srgb_to_hsl(r, g, b);
+    (
+        hsl_to_srgb((h + 120.0) % 360.0, s, l),
+        hsl_to_srgb((h + 240.0) % 360.0, s, l),
+    )
+}
+
+/// Analogous palette — two colors at +30 and -30 degrees in HSL.
+///
+/// # Example
+/// ```rust
+/// let ((r1, g1, _b1), (r2, _g2, b2)) = prime_color::palette_analogous(1.0, 0.0, 0.0);
+/// // Red ±30° → orange-ish and magenta-ish
+/// assert!(r1 > 0.5);
+/// assert!(r2 > 0.5);
+/// ```
+pub fn palette_analogous(r: f32, g: f32, b: f32) -> ((f32, f32, f32), (f32, f32, f32)) {
+    let (h, s, l) = srgb_to_hsl(r, g, b);
+    (
+        hsl_to_srgb((h + 30.0) % 360.0, s, l),
+        hsl_to_srgb((h + 330.0) % 360.0, s, l),
+    )
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -790,5 +968,150 @@ mod tests {
         // Both endpoints should be red-family (high red channel)
         assert!(at_0.0 > 0.9 && at_1.0 > 0.9,
             "h=0 and h=1 should both be red-family; got {:?} and {:?}", at_0, at_1);
+    }
+
+    // --- HSV round-trips ---
+
+    #[test]
+    fn hsv_roundtrip_red() {
+        let original = (1.0_f32, 0.0_f32, 0.0_f32);
+        let (h, s, v) = srgb_to_hsv(original.0, original.1, original.2);
+        let back = hsv_to_srgb(h, s, v);
+        assert!(tuple_approx_eq(back, original), "round-trip red: {:?}", back);
+    }
+
+    #[test]
+    fn hsv_roundtrip_green() {
+        let original = (0.0_f32, 1.0_f32, 0.0_f32);
+        let (h, s, v) = srgb_to_hsv(original.0, original.1, original.2);
+        let back = hsv_to_srgb(h, s, v);
+        assert!(tuple_approx_eq(back, original), "round-trip green: {:?}", back);
+    }
+
+    #[test]
+    fn hsv_roundtrip_blue() {
+        let original = (0.0_f32, 0.0_f32, 1.0_f32);
+        let (h, s, v) = srgb_to_hsv(original.0, original.1, original.2);
+        let back = hsv_to_srgb(h, s, v);
+        assert!(tuple_approx_eq(back, original), "round-trip blue: {:?}", back);
+    }
+
+    #[test]
+    fn hsv_roundtrip_arbitrary() {
+        let original = (0.3_f32, 0.6_f32, 0.9_f32);
+        let (h, s, v) = srgb_to_hsv(original.0, original.1, original.2);
+        let back = hsv_to_srgb(h, s, v);
+        assert!(tuple_approx_eq(back, original), "round-trip arbitrary: {:?}", back);
+    }
+
+    #[test]
+    fn hsv_roundtrip_black() {
+        let (h, s, v) = srgb_to_hsv(0.0, 0.0, 0.0);
+        let back = hsv_to_srgb(h, s, v);
+        assert!(tuple_approx_eq(back, (0.0, 0.0, 0.0)));
+    }
+
+    #[test]
+    fn hsv_roundtrip_white() {
+        let (h, s, v) = srgb_to_hsv(1.0, 1.0, 1.0);
+        let back = hsv_to_srgb(h, s, v);
+        assert!(tuple_approx_eq(back, (1.0, 1.0, 1.0)));
+    }
+
+    #[test]
+    fn hsv_known_red() {
+        let (h, s, v) = srgb_to_hsv(1.0, 0.0, 0.0);
+        assert!(approx_eq(h, 0.0), "h={}", h);
+        assert!(approx_eq(s, 1.0), "s={}", s);
+        assert!(approx_eq(v, 1.0), "v={}", v);
+    }
+
+    #[test]
+    fn hsv_known_green() {
+        let (h, s, v) = srgb_to_hsv(0.0, 1.0, 0.0);
+        assert!(approx_eq(h, 120.0), "h={}", h);
+        assert!(approx_eq(s, 1.0), "s={}", s);
+        assert!(approx_eq(v, 1.0), "v={}", v);
+    }
+
+    // --- Luminance ---
+
+    #[test]
+    fn luminance_white() {
+        let y = luminance(1.0, 1.0, 1.0);
+        assert!(approx_eq(y, 1.0), "luminance(white)={}", y);
+    }
+
+    #[test]
+    fn luminance_black() {
+        let y = luminance(0.0, 0.0, 0.0);
+        assert!(approx_eq(y, 0.0), "luminance(black)={}", y);
+    }
+
+    #[test]
+    fn luminance_green_dominates() {
+        // Green has the largest coefficient (0.7152)
+        let yr = luminance(1.0, 0.0, 0.0);
+        let yg = luminance(0.0, 1.0, 0.0);
+        let yb = luminance(0.0, 0.0, 1.0);
+        assert!(yg > yr && yg > yb, "green should dominate: r={} g={} b={}", yr, yg, yb);
+    }
+
+    // --- Contrast ratio ---
+
+    #[test]
+    fn contrast_ratio_white_black() {
+        let ratio = contrast_ratio(1.0, 1.0, 1.0, 0.0, 0.0, 0.0);
+        assert!(ratio >= 21.0 - 0.1, "white/black contrast={}", ratio);
+    }
+
+    #[test]
+    fn contrast_ratio_same_color() {
+        let ratio = contrast_ratio(0.5, 0.5, 0.5, 0.5, 0.5, 0.5);
+        assert!(approx_eq(ratio, 1.0), "same color contrast={}", ratio);
+    }
+
+    #[test]
+    fn contrast_ratio_symmetric() {
+        let r1 = contrast_ratio(1.0, 0.0, 0.0, 0.0, 0.0, 1.0);
+        let r2 = contrast_ratio(0.0, 0.0, 1.0, 1.0, 0.0, 0.0);
+        assert!(approx_eq(r1, r2), "not symmetric: {} vs {}", r1, r2);
+    }
+
+    // --- Palette ---
+
+    #[test]
+    fn palette_complementary_red_to_cyan() {
+        let (r, g, b) = palette_complementary(1.0, 0.0, 0.0);
+        // Red's complement in HSL is cyan (0, 1, 1)
+        assert!(r < 0.1, "r={}", r);
+        assert!((g - 1.0).abs() < 1e-3, "g={}", g);
+        assert!((b - 1.0).abs() < 1e-3, "b={}", b);
+    }
+
+    #[test]
+    fn palette_complementary_roundtrip() {
+        // Complement of complement should return original
+        let original = (0.8_f32, 0.2_f32, 0.4_f32);
+        let comp = palette_complementary(original.0, original.1, original.2);
+        let back = palette_complementary(comp.0, comp.1, comp.2);
+        assert!(tuple_approx_eq(back, original),
+            "double complement failed: {:?} vs {:?}", back, original);
+    }
+
+    #[test]
+    fn palette_triadic_red() {
+        let ((r1, g1, b1), (r2, g2, b2)) = palette_triadic(1.0, 0.0, 0.0);
+        // Red + 120° = green, Red + 240° = blue
+        assert!(g1 > 0.9, "first triadic should be green-ish: ({},{},{})", r1, g1, b1);
+        assert!(b2 > 0.9, "second triadic should be blue-ish: ({},{},{})", r2, g2, b2);
+    }
+
+    #[test]
+    fn palette_analogous_red() {
+        let ((r1, _g1, _b1), (r2, _g2, _b2)) = palette_analogous(1.0, 0.0, 0.0);
+        // Both analogous colors of red should still have significant red
+        assert!(r1 > 0.5, "first analogous should be reddish: r={}", r1);
+        assert!(r2 > 0.5, "second analogous should be reddish: r={}", r2);
     }
 }
