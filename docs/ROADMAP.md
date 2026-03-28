@@ -1,5 +1,5 @@
 # PRIME Roadmap
-Last updated: 2026-03-18
+Last updated: 2026-03-28
 
 Pure math foundation for the FORM / SCORE / STAGE ecosystem.
 Each phase ends with a PR into `dev`. Between each phase, a **review session**
@@ -24,17 +24,17 @@ feature/phase-N-<crate>  ← one branch per phase
 | Crate | Description | Status |
 |---|---|---|
 | `prime-sdf` | SDF primitives, CSG, domain transforms | ✅ Done — 43 tests |
-| `prime-random` | Seeded PCG64 RNG, Poisson disk sampling | stub |
-| `prime-interp` | Easing functions, lerp, smoothstep, remap | stub |
-| `prime-signal` | Smoothdamp, spring, low-pass filter, deadzone | stub |
-| `prime-osc` | LFO waveform shapes, ADSR envelope | stub |
-| `prime-noise` | Perlin, Simplex, FBM, Worley, curl noise | stub |
-| `prime-color` | Oklab, sRGB, HSL/HSV, palette generation | stub |
-| `prime-splines` | Bézier, Catmull-Rom, B-spline, slerp | stub |
-| `prime-spatial` | Ray tests, AABB, frustum cull | stub |
-| `prime-voronoi` | Voronoi, Delaunay, Lloyd relaxation | stub |
-| `prime-diffusion` | Monte Carlo sampling, probability distributions, Gaussian kernels, stochastic integration | stub |
-| `prime-dynamics` | ODE solvers (Euler, RK4), chaos attractors (Lorenz, Rössler), biological models (Lotka-Volterra, SIR), reaction-diffusion, L-systems | stub |
+| `prime-random` | Mulberry32 RNG, distributions, Bridson, Monte Carlo, Halton | ✅ Done — 60+ tests, benchmarked |
+| `prime-interp` | Easing functions, lerp, smoothstep, remap, pingpong | ✅ Done — 48 tests |
+| `prime-signal` | Smoothdamp, spring, low/high pass, deadzone (f32/Vec2/Vec3) | ✅ Done — 36 tests |
+| `prime-osc` | LFO waveforms (sine/cos/tri/saw/square), ADSR envelope | ✅ Done — 34 tests |
+| `prime-noise` | Perlin, Simplex, FBM, Worley, curl noise (2D/3D) | ✅ Done — 74 tests |
+| `prime-color` | Oklab, sRGB, HSL/HSV, luminance, contrast, palette | ✅ Done — 70 tests |
+| `prime-splines` | Bézier, Catmull-Rom, B-spline, slerp, arc-length | ✅ Done — 56 tests |
+| `prime-spatial` | Ray tests, AABB, frustum cull (sphere + AABB) | ✅ Done — 39 tests |
+| `prime-voronoi` | Voronoi nearest, F1/F2, Lloyd relaxation | ✅ Done — 16 tests |
+| `prime-diffusion` | Ornstein-Uhlenbeck, GBM (uses prime-random Mulberry32) | ✅ Done — 23 tests |
+| `prime-dynamics` | Euler/RK4, Lorenz, Rössler, Duffing, Lotka-Volterra, SIR, Gray-Scott | ✅ Done — 45 tests |
 
 ### STAGE — game domain systems (depends on PRIME)
 
@@ -94,145 +94,107 @@ stage-ai/proc/nav ──► idle-hero Phase 5+
 
 ---
 
-### Phase 1 — Core determinism + interpolation
-**Branch:** `feature/phase-1-random-interp`
-**Target:** 2026-03-25
-**Unlocks:** SCORE lerp/easing, seeded RNG for all future crates
+### Phase 1 — Core determinism + interpolation ✅
+**Done.** PRs #22, #24, #25 merged.
 
-#### `prime-random`
-- Seeded PCG64 RNG (`Rng` struct with `seed(u64)`)
-- `next_f32()`, `next_f64()`, `next_u32()`, `range_f32(min, max)`, `range_u32(min, max)`
-- `shuffle(&mut [T])`, `choose(&[T]) -> Option<&T>`
-- Poisson disk sampling 2D/3D
-- Rustdoc on every public fn
+#### `prime-random` ✅
+- Mulberry32 PRNG: `prng_next(seed) -> (f32, u32)` — pure seed threading
+- Distributions: Gaussian (Box-Muller), exponential, disk/annulus uniform
+- Bridson's Poisson disk sampling with area-uniform annulus correction
+- Monte Carlo integration (plain + stratified), Welford variance
+- Quasi-random: van der Corput, Halton 2D/3D
+- CausalStep<T> for backward traversal of deterministic sequences
+- 15 statistical validation tests (chi-square, KS, Jarque-Bera, Anderson-Darling)
+- Criterion benchmarks (8 benchmark groups)
+- 60+ unit tests, 23 doc tests
 
-#### `prime-interp`
-- `lerp(a, b, t)`, `lerp_clamped(a, b, t)`
-- `remap(v, in_min, in_max, out_min, out_max)`
-- `smoothstep(edge0, edge1, x)`, `smootherstep(edge0, edge1, x)`
-- Easing functions: `ease_in_quad`, `ease_out_quad`, `ease_in_out_quad`, `ease_in_cubic`, `ease_out_cubic`, `ease_in_out_cubic`, `ease_in_expo`, `ease_out_expo`, `ease_in_out_expo`, `ease_in_elastic`, `ease_out_elastic`, `ease_in_back`, `ease_out_back`, `ease_in_bounce`, `ease_out_bounce`
-- `pingpong(t, length)`, `repeat(t, length)`
-- Rustdoc on every public fn
-
-**Review session after PR.**
+#### `prime-interp` ✅
+- lerp, lerp_clamped, inv_lerp, remap, repeat, pingpong
+- smoothstep, smootherstep
+- 10 easing families: quad, cubic, quart, quint, sine, expo, circ, elastic, bounce, back
+- 48 tests
 
 ---
 
-### Phase 2 — Game feel + oscillation
-**Branch:** `feature/phase-2-signal-osc`
-**Target:** 2026-04-01
-**Unlocks:** SCORE fully unblocked (all 4 PRIME imports available)
+### Phase 2 — Game feel + oscillation ✅
+**Done.** PR #25 merged.
 
-#### `prime-signal`
-- `smooth_damp(current, target, velocity, smooth_time, dt)` — returns `(value, new_velocity)`
-- `spring(current, target, velocity, stiffness, damping, dt)`
-- `low_pass(current, target, alpha)` — exponential moving average
-- `deadzone(value, threshold)`, `deadzone_remap(value, threshold, max)`
-- All variants for `f32`, `Vec2`, `Vec3`
+#### `prime-signal` ✅
+- smoothdamp, spring, low_pass, high_pass, deadzone
+- Vec2/Vec3 variants for smoothdamp and spring
+- 36 tests
 
-#### `prime-osc`
-- LFO waveforms: `sine(t)`, `cosine(t)`, `triangle(t)`, `sawtooth(t)`, `square(t)`, `pulse(t, width)`
-- `adsr(t, attack, decay, sustain, release, gate_open)` — returns envelope value 0..1
-- `lfo(t, rate_hz, shape, phase_offset)` — normalized output
-
-**Review session after PR.**
+#### `prime-osc` ✅
+- LFO: sine, cosine, triangle, sawtooth, square (with duty cycle)
+- ADSR envelope state machine
+- 34 tests
 
 ---
 
 ### SCORE wiring — import from PRIME
-**Timing:** After Phase 2 (target weekend 2026-03-28)
-Replace SCORE's internal easing/LFO/signal implementations with PRIME imports.
-Validates PRIME API is ergonomic before building further. SCORE tests must stay green.
+**Status:** Ready. PRIME APIs are stable. SCORE can import from `dev` branch.
 
 ---
 
-### Phase 3 — Space + curves
-**Branch:** `feature/phase-3-spatial-splines`
-**Target:** 2026-04-08
-**Unlocks:** FORM ray marching, path following, navigation prep
+### Phase 3 — Space + curves ✅
+**Done.** PR #25 merged.
 
-#### `prime-spatial`
-- Ray: `Ray { origin: Vec3, direction: Vec3 }` + `ray_at(t)`
-- `ray_sphere(ray, center, radius)` → `Option<f32>` (t of hit)
-- `ray_aabb(ray, min, max)` → `Option<f32>`
-- `ray_plane(ray, normal, d)` → `Option<f32>`
-- `Aabb { min: Vec3, max: Vec3 }` + `contains`, `intersects`, `expand`, `union`
-- `frustum_cull(aabb, planes: &[Vec4; 6])` → `bool`
+#### `prime-spatial` ✅
+- ray_sphere, ray_aabb, ray_plane
+- aabb_overlaps, aabb_contains, aabb_union, aabb_closest_point
+- frustum_cull_sphere, frustum_cull_aabb
+- 39 tests
 
-#### `prime-splines`
-- `bezier_quadratic(p0, p1, p2, t)`, `bezier_cubic(p0, p1, p2, p3, t)`
-- `bezier_tangent_cubic(p0, p1, p2, p3, t)`
-- `catmull_rom(p0, p1, p2, p3, t, alpha)`
-- `b_spline(control_points, t)` — uniform, open
-- `slerp(a: Quat, b: Quat, t)`, `nlerp(a: Vec3, b: Vec3, t)`
-- Arc-length parameterisation helper
-
-**Review session after PR.**
+#### `prime-splines` ✅
+- bezier_quadratic/cubic (1D + 3D), hermite, catmull_rom, b_spline_cubic, slerp
+- Arc-length: bezier_cubic_arc_length, bezier_cubic_t_at_length (1D + 3D)
+- 56 tests
 
 ---
 
-### Phase 4 — Procedural + stochastic
-**Branch:** `feature/phase-4-noise-voronoi-diffusion`
-**Target:** 2026-04-22
-**Unlocks:** FORM fully unblocked, STAGE procedural generation
+### Phase 4 — Procedural + stochastic ✅
+**Done.** PR #25 merged.
 
-#### `prime-noise`
-- Value noise, Perlin noise (2D/3D)
-- Simplex noise (2D/3D/4D)
-- FBM (fractal Brownian motion) — configurable octaves, lacunarity, gain
-- Worley / cellular noise (2D/3D)
-- Curl noise (3D — divergence-free, for fluid/smoke)
-- All seeded via `prime-random`
+#### `prime-noise` ✅
+- value_noise, perlin, simplex (2D/3D), fbm (2D/3D), worley, domain_warp (2D/3D)
+- curl_2d, curl_3d (divergence-free vector fields)
+- 74 tests
 
-#### `prime-voronoi`
-- Voronoi diagram (2D) — nearest site, distance
-- Worley distance variants (F1, F2, F2-F1)
-- Delaunay triangulation (2D)
-- Lloyd relaxation (centroidal Voronoi)
+#### `prime-voronoi` ✅
+- voronoi_nearest_2d, voronoi_f1_f2_2d, lloyd_relax_step_2d
+- Delaunay triangulation deferred (Bowyer-Watson complexity)
+- 16 tests
 
-#### `prime-diffusion`
-- Probability distributions: uniform, normal (Box-Muller), exponential, beta, Bernoulli
-- `sample_normal(mean, std_dev, rng)`, `sample_exponential(lambda, rng)`
-- Monte Carlo integration: `integrate_mc(f, bounds, samples, rng)`
-- Gaussian kernel: `gaussian(x, sigma)`, `gaussian_2d(x, y, sigma)`
-- Importance sampling helper
-
-**Review session after PR.**
+#### `prime-diffusion` ✅
+- ou_step, ou_step_seeded, gbm_step, gbm_step_seeded
+- Uses prime-random Mulberry32 (unified PRNG, u32 seeds)
+- 23 tests
 
 ---
 
-### Phase 5 — Color
-**Branch:** `feature/phase-5-color`
-**Target:** 2026-04-28
-**Unlocks:** FORM visual output, palette generation
+### Phase 5 — Color ✅
+**Done.** PR #25 merged.
 
-#### `prime-color`
-- `Srgb { r, g, b }`, `LinearRgb { r, g, b }`, `Oklab { L, a, b }`, `Hsl { h, s, l }`, `Hsv { h, s, v }`
-- Conversions between all representations
-- `oklab_lerp(a, b, t)` — perceptually uniform interpolation
-- Palette generation: complementary, triadic, analogous, split-complementary
-- `luma(rgb)`, `contrast_ratio(a, b)`, `luminance(rgb)`
-
-**Review session after PR.**
+#### `prime-color` ✅
+- sRGB ↔ linear, sRGB ↔ Oklab, sRGB ↔ HSL, sRGB ↔ HSV
+- oklab_mix (perceptual interpolation)
+- luminance (BT.709), contrast_ratio (WCAG)
+- palette_complementary, palette_triadic, palette_analogous
+- 70 tests
 
 ---
 
-### Phase 6 — Dynamics
-**Branch:** `feature/phase-6-dynamics`
-**Target:** 2026-05-05
-**Unlocks:** SCORE chaos math from PRIME, FORM reaction-diffusion, STAGE AI variety
+### Phase 6 — Dynamics ✅
+**Done.** PR #25 merged.
 
-#### `prime-dynamics`
-- ODE solvers: `euler_step(f, state, t, dt)`, `rk4_step(f, state, t, dt)`
-- Lorenz attractor: `lorenz_step(state, sigma, rho, beta, dt)`
-- Rössler attractor, Duffing oscillator, Van der Pol oscillator
-- Logistic map: `logistic(x, r)`
-- Lotka-Volterra (predator-prey): `lotka_volterra_step(prey, pred, alpha, beta, delta, gamma, dt)`
-- SIR model: `sir_step(s, i, r, beta, gamma, dt)`
-- L-systems: `LSystem { axiom, rules }` + `step(n)` → `String`
-- Gray-Scott reaction-diffusion: `gray_scott_step(u, v, f, k, dt)`
-
-**Review session after PR.**
+#### `prime-dynamics` ✅
+- ODE solvers: euler_step, rk4_step, rk4_step3
+- Chaos: lorenz_step, rossler_step, duffing_step
+- Biological: lotka_volterra_step, sir_step
+- Discrete: logistic map
+- Reaction-diffusion: gray_scott_step
+- L-systems deferred (string allocation paradigm mismatch)
+- 45 tests
 
 ---
 
@@ -300,14 +262,12 @@ Validates PRIME API is ergonomic before building further. SCORE tests must stay 
 
 ---
 
-### Phase 10 — TypeScript ports
-**Branch:** `feature/phase-10-ts-ports`
-**Target:** 2026-06-23
-**All TS packages implemented.** Pure TS, matching Rust API.
-Cross-language determinism tests for every crate.
-WASM backend slot defined but not wired.
+### Phase 10 — TypeScript ports ✅
+**Done.** PR #25 merged.
 
-**Review session after PR.**
+All 10 TS packages updated to match Rust APIs. Cross-language tests for every crate.
+WASM bindings complete (60+ functions). `successors` utility encapsulates the only
+`let`/`while` in the TS codebase (ADVANCE-EXCEPTION, see ADR-007).
 
 ---
 
@@ -323,13 +283,24 @@ WASM backend slot defined but not wired.
 
 ## Key milestones
 
-| Date | Milestone |
+| Date | Milestone | Status |
+|---|---|---|
+| 2026-03-17 | Phase 0 done — scaffold + prime-sdf | ✅ |
+| 2026-03-28 | Phases 1-6 done — all PRIME crates implemented | ✅ |
+| 2026-03-28 | Phase 10 done — all TS ports complete | ✅ |
+| 2026-03-28 | Math docs complete — 11 files with formulas/derivations | ✅ |
+| 2026-03-28 | ADRs complete — 7 architecture decision records | ✅ |
+| 2026-03-28 | Benchmarks — Criterion 0.8, statistical validation | ✅ |
+| — | Phase 7 — STAGE foundation (stage-loop) | Pending (separate repo) |
+| — | Phase 8 — STAGE game systems | Pending (separate repo) |
+| — | Phase 9 — STAGE AI + proc | Pending (separate repo) |
+| — | Phase 11 — Publish to crates.io + npm | **Next** |
+
+## Deferred items
+
+| Item | Reason |
 |---|---|
-| 2026-03-25 | Phase 1 done — seeded RNG + interpolation available |
-| 2026-03-28 | SCORE wiring — SCORE imports from PRIME |
-| 2026-04-01 | Phase 2 done — SCORE fully unblocked |
-| 2026-04-22 | Phase 4 done — FORM fully unblocked |
-| 2026-05-12 | Phase 7 done — STAGE foundation, idle-hero integration possible |
-| 2026-05-26 | Phase 8 done — idle-hero Phase 3+ systems available |
-| 2026-06-09 | Phase 9 done — idle-hero Phase 5+ systems available |
-| 2026-06-30 | Phase 11 done — public release on crates.io + npm |
+| Delaunay triangulation | Bowyer-Watson algorithm complexity (~200 lines); deferred to post-release |
+| L-systems | String allocation paradigm mismatch with pure numeric functions |
+| Van der Pol oscillator | Low priority; Duffing covers the same ODE category |
+| Simplex 4D | Not needed by current consumers (SCORE/FORM) |
