@@ -374,6 +374,176 @@ export const lsystemGenerate = (axiom: string, rules: readonly LRule[], generati
     axiom,
   )
 
+// ── Numerical differentiation ────────────────────────────────────────────────
+
+/**
+ * Numerical derivative via central difference. `f'(x) ≈ (f(x+h) - f(x-h)) / 2h`.
+ *
+ * More accurate than forward difference (O(h²) vs O(h) error).
+ *
+ * @param f - scalar function to differentiate
+ * @param x - point at which to evaluate derivative
+ * @param h - step size
+ * @returns approximate f'(x)
+ *
+ * @example
+ * const d = derivative(x => x * x, 3, 1e-5)
+ * // d ≈ 6 (d/dx(x²) = 2x = 6 at x=3)
+ */
+export const derivative = (
+  f: (x: number) => number,
+  x: number,
+  h: number,
+): number => (f(x + h) - f(x - h)) / (2 * h)
+
+/**
+ * Second derivative via central difference. `f''(x) ≈ (f(x+h) - 2f(x) + f(x-h)) / h²`.
+ *
+ * @param f - scalar function
+ * @param x - point at which to evaluate
+ * @param h - step size
+ * @returns approximate f''(x)
+ *
+ * @example
+ * const d2 = derivative2(x => x * x * x, 2, 1e-4)
+ * // d2 ≈ 12 (d²/dx²(x³) = 6x = 12 at x=2)
+ */
+export const derivative2 = (
+  f: (x: number) => number,
+  x: number,
+  h: number,
+): number => (f(x + h) - 2 * f(x) + f(x - h)) / (h * h)
+
+/**
+ * Numerical gradient of a 2D function via central differences.
+ *
+ * @param f - function of (x, y)
+ * @param x - x coordinate
+ * @param y - y coordinate
+ * @param h - step size
+ * @returns [df/dx, df/dy]
+ *
+ * @example
+ * const [gx, gy] = gradient2d((x, y) => x * x + y * y, 3, 4, 1e-5)
+ * // gx ≈ 6, gy ≈ 8
+ */
+export const gradient2d = (
+  f: (x: number, y: number) => number,
+  x: number,
+  y: number,
+  h: number,
+): [number, number] => {
+  const dx = (f(x + h, y) - f(x - h, y)) / (2 * h)
+  const dy = (f(x, y + h) - f(x, y - h)) / (2 * h)
+  return [dx, dy]
+}
+
+// ── Numerical integration ────────────────────────────────────────────────────
+
+/**
+ * Trapezoidal rule integration of f over [a, b] with n subdivisions.
+ *
+ * `∫f(x)dx ≈ h/2 * (f(a) + 2*f(x₁) + 2*f(x₂) + ... + f(b))`
+ *
+ * @param f - integrand
+ * @param a - lower bound
+ * @param b - upper bound
+ * @param n - number of subdivisions
+ * @returns approximate integral
+ *
+ * @example
+ * const area = integrateTrapezoidal(x => x * x, 0, 1, 1000)
+ * // area ≈ 1/3
+ */
+export const integrateTrapezoidal = (
+  f: (x: number) => number,
+  a: number,
+  b: number,
+  n: number,
+): number => {
+  const h = (b - a) / n
+  const interior = Array.from({ length: n - 1 }).reduce<number>(
+    (sum, _, idx) => sum + f(a + (idx + 1) * h),
+    0,
+  )
+  return h * (f(a) / 2 + interior + f(b) / 2)
+}
+
+/**
+ * Simpson's rule integration of f over [a, b] with n subdivisions (n must be even).
+ *
+ * `∫f(x)dx ≈ h/3 * (f(a) + 4*f(x₁) + 2*f(x₂) + 4*f(x₃) + ... + f(b))`
+ *
+ * O(h⁴) error — much more accurate than trapezoidal for smooth functions.
+ *
+ * @param f - integrand
+ * @param a - lower bound
+ * @param b - upper bound
+ * @param n - number of subdivisions (rounded up to even if odd)
+ * @returns approximate integral
+ *
+ * @example
+ * const area = integrateSimpson(x => x * x, 0, 1, 100)
+ * // area ≈ 1/3
+ */
+export const integrateSimpson = (
+  f: (x: number) => number,
+  a: number,
+  b: number,
+  n: number,
+): number => {
+  const ne = n % 2 === 1 ? n + 1 : n // ensure even
+  const h = (b - a) / ne
+  const sum = Array.from({ length: ne - 1 }).reduce<number>(
+    (acc, _, idx) => {
+      const i = idx + 1
+      const coeff = i % 2 === 0 ? 2 : 4
+      return acc + coeff * f(a + i * h)
+    },
+    0,
+  )
+  return (h / 3) * (f(a) + sum + f(b))
+}
+
+// ── Van der Pol oscillator ───────────────────────────────────────────────────
+
+/**
+ * Van der Pol oscillator step via RK4.
+ *
+ * `x'' - μ(1 - x²)x' + x = 0`
+ *
+ * Relaxation oscillator — self-sustaining oscillations with nonlinear damping.
+ * μ=0 is a simple harmonic oscillator. μ>0 exhibits limit cycle behavior.
+ *
+ * @param x  - current position
+ * @param v  - current velocity
+ * @param mu - nonlinearity parameter
+ * @param dt - time step
+ * @returns [nextX, nextV]
+ *
+ * @example
+ * const [x1, v1] = vanDerPolStep(1, 0, 1, 0.01)
+ */
+export const vanDerPolStep = (
+  x: number,
+  v: number,
+  mu: number,
+  dt: number,
+): [number, number] => {
+  const f = (_t: number, state: [number, number]): [number, number] => {
+    const [sx, sv] = state
+    return [sv, mu * (1 - sx * sx) * sv - sx]
+  }
+  const k1 = f(0, [x, v])
+  const k2 = f(0, [x + 0.5 * dt * k1[0], v + 0.5 * dt * k1[1]])
+  const k3 = f(0, [x + 0.5 * dt * k2[0], v + 0.5 * dt * k2[1]])
+  const k4 = f(0, [x + dt * k3[0], v + dt * k3[1]])
+  return [
+    x + (dt / 6) * (k1[0] + 2 * k2[0] + 2 * k3[0] + k4[0]),
+    v + (dt / 6) * (k1[1] + 2 * k2[1] + 2 * k3[1] + k4[1]),
+  ]
+}
+
 // ── Duffing oscillator ────────────────────────────────────────────────────────
 
 export const duffingStep = (

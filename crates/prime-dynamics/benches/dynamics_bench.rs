@@ -35,10 +35,32 @@ fn bench_lsystem_generations(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_van_der_pol(c: &mut Criterion) {
+    c.bench_function("van_der_pol_1000", |b| {
+        b.iter(|| {
+            (0..1000).fold((1.0_f32, 0.0_f32), |(x, v), _| {
+                van_der_pol_step(black_box(x), v, 1.0, 0.01)
+            })
+        })
+    });
+}
+
+fn bench_integrate_simpson(c: &mut Criterion) {
+    let mut group = c.benchmark_group("integrate_simpson");
+    for n in [100, 1000, 10000] {
+        group.bench_function(format!("n={n}"), |b| {
+            b.iter(|| integrate_simpson(black_box(|x: f32| x.sin()), 0.0, std::f32::consts::PI, n))
+        });
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_rk4_step,
     bench_lorenz_1000,
     bench_lsystem_generations,
+    bench_van_der_pol,
+    bench_integrate_simpson,
 );
 criterion_main!(benches);

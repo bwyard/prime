@@ -441,6 +441,114 @@ pub fn lsystem_generate(axiom: &str, rules: &[LRule], generations: usize) -> Str
     (0..generations).fold(axiom.to_string(), |current, _| lsystem_step(&current, rules))
 }
 
+// ── Numerical differentiation ────────────────────────────────────────────────
+
+/// Numerical derivative via central difference. `f'(x) ≈ (f(x+h) - f(x-h)) / 2h`.
+///
+/// More accurate than forward difference (O(h²) vs O(h) error).
+/// For f32, use h ≈ 1e-3 to balance truncation and rounding error.
+/// ```rust
+/// # use prime_dynamics::derivative;
+/// let d = derivative(|x| x * x, 3.0, 1e-3);
+/// assert!((d - 6.0).abs() < 1e-3); // d/dx(x²) = 2x = 6 at x=3
+/// ```
+pub fn derivative(f: fn(f32) -> f32, x: f32, h: f32) -> f32 {
+    (f(x + h) - f(x - h)) / (2.0 * h)
+}
+
+/// Second derivative via central difference. `f''(x) ≈ (f(x+h) - 2f(x) + f(x-h)) / h²`.
+///
+/// For f32, use h ≈ 1e-2 to balance truncation and rounding error.
+/// ```rust
+/// # use prime_dynamics::derivative2;
+/// let d2 = derivative2(|x| x * x * x, 2.0, 1e-2);
+/// assert!((d2 - 12.0).abs() < 0.1); // d²/dx²(x³) = 6x = 12 at x=2
+/// ```
+pub fn derivative2(f: fn(f32) -> f32, x: f32, h: f32) -> f32 {
+    (f(x + h) - 2.0 * f(x) + f(x - h)) / (h * h)
+}
+
+/// Numerical gradient of a 2D function via central differences.
+/// ```rust
+/// # use prime_dynamics::gradient_2d;
+/// let (gx, gy) = gradient_2d(|x, y| x * x + y * y, 3.0, 4.0, 1e-3);
+/// assert!((gx - 6.0).abs() < 1e-3); // df/dx = 2x = 6
+/// assert!((gy - 8.0).abs() < 1e-3); // df/dy = 2y = 8
+/// ```
+pub fn gradient_2d(f: fn(f32, f32) -> f32, x: f32, y: f32, h: f32) -> (f32, f32) {
+    let dx = (f(x + h, y) - f(x - h, y)) / (2.0 * h);
+    let dy = (f(x, y + h) - f(x, y - h)) / (2.0 * h);
+    (dx, dy)
+}
+
+// ── Numerical integration ────────────────────────────────────────────────────
+
+/// Trapezoidal rule integration of f over [a, b] with n subdivisions.
+///
+/// `∫f(x)dx ≈ h/2 * (f(a) + 2*f(x₁) + 2*f(x₂) + ... + f(b))`
+/// ```rust
+/// # use prime_dynamics::integrate_trapezoidal;
+/// let area = integrate_trapezoidal(|x| x * x, 0.0, 1.0, 1000);
+/// assert!((area - 1.0/3.0).abs() < 1e-4);
+/// ```
+pub fn integrate_trapezoidal(f: fn(f32) -> f32, a: f32, b: f32, n: usize) -> f32 {
+    let h = (b - a) / n as f32;
+    let interior: f32 = (1..n).map(|i| f(a + i as f32 * h)).sum();
+    h * (f(a) / 2.0 + interior + f(b) / 2.0)
+}
+
+/// Simpson's rule integration of f over [a, b] with n subdivisions (n must be even).
+///
+/// `∫f(x)dx ≈ h/3 * (f(a) + 4*f(x₁) + 2*f(x₂) + 4*f(x₃) + ... + f(b))`
+///
+/// O(h⁴) error — much more accurate than trapezoidal for smooth functions.
+/// ```rust
+/// # use prime_dynamics::integrate_simpson;
+/// let area = integrate_simpson(|x| x * x, 0.0, 1.0, 100);
+/// assert!((area - 1.0/3.0).abs() < 1e-6);
+/// ```
+pub fn integrate_simpson(f: fn(f32) -> f32, a: f32, b: f32, n: usize) -> f32 {
+    let n = if n % 2 == 1 { n + 1 } else { n }; // ensure even
+    let h = (b - a) / n as f32;
+    let sum: f32 = (1..n)
+        .map(|i| {
+            let coeff = if i % 2 == 0 { 2.0 } else { 4.0 };
+            coeff * f(a + i as f32 * h)
+        })
+        .sum();
+    h / 3.0 * (f(a) + sum + f(b))
+}
+
+// ── Van der Pol oscillator ───────────────────────────────────────────────────
+
+/// Van der Pol oscillator step via RK4.
+///
+/// `x'' - μ(1 - x²)x' + x = 0`
+///
+/// Relaxation oscillator — self-sustaining oscillations with nonlinear damping.
+/// μ=0 is a simple harmonic oscillator. μ>0 exhibits limit cycle behavior.
+/// ```rust
+/// # use prime_dynamics::van_der_pol_step;
+/// let (x, v) = van_der_pol_step(1.0, 0.0, 1.0, 0.01);
+/// assert!(x.is_finite() && v.is_finite());
+/// ```
+pub fn van_der_pol_step(x: f32, v: f32, mu: f32, dt: f32) -> (f32, f32) {
+    // System: dx/dt = v, dv/dt = mu*(1-x²)*v - x
+    let f = |_t: f32, state: (f32, f32)| -> (f32, f32) {
+        let (x, v) = state;
+        (v, mu * (1.0 - x * x) * v - x)
+    };
+    // RK4 for 2D system
+    let k1 = f(0.0, (x, v));
+    let k2 = f(0.0, (x + 0.5 * dt * k1.0, v + 0.5 * dt * k1.1));
+    let k3 = f(0.0, (x + 0.5 * dt * k2.0, v + 0.5 * dt * k2.1));
+    let k4 = f(0.0, (x + dt * k3.0, v + dt * k3.1));
+    (
+        x + dt / 6.0 * (k1.0 + 2.0 * k2.0 + 2.0 * k3.0 + k4.0),
+        v + dt / 6.0 * (k1.1 + 2.0 * k2.1 + 2.0 * k3.1 + k4.1),
+    )
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -803,5 +911,88 @@ mod tests {
             LRule { symbol: 'F', replacement: "FF" },
         ];
         assert_eq!(lsystem_generate("F", &rules, 3), lsystem_generate("F", &rules, 3));
+    }
+
+    // ── derivative ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn derivative_x_squared() {
+        let d = derivative(|x| x * x, 3.0, 1e-3);
+        assert!((d - 6.0).abs() < 1e-3, "d={d}");
+    }
+
+    #[test]
+    fn derivative_sin() {
+        let d = derivative(|x| x.sin(), 0.0, 1e-3);
+        assert!((d - 1.0).abs() < 1e-3, "d={d}"); // cos(0) = 1
+    }
+
+    #[test]
+    fn derivative2_x_cubed() {
+        let d2 = derivative2(|x| x * x * x, 2.0, 1e-2);
+        assert!((d2 - 12.0).abs() < 0.1, "d2={d2}"); // 6x = 12 at x=2
+    }
+
+    #[test]
+    fn gradient_2d_paraboloid() {
+        let (gx, gy) = gradient_2d(|x, y| x * x + y * y, 3.0, 4.0, 1e-3);
+        assert!((gx - 6.0).abs() < 1e-3, "gx={gx}");
+        assert!((gy - 8.0).abs() < 1e-3, "gy={gy}");
+    }
+
+    // ── integration ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn trapezoidal_x_squared() {
+        let area = integrate_trapezoidal(|x| x * x, 0.0, 1.0, 1000);
+        assert!((area - 1.0 / 3.0).abs() < 1e-4, "area={area}");
+    }
+
+    #[test]
+    fn trapezoidal_sin() {
+        let area = integrate_trapezoidal(|x| x.sin(), 0.0, std::f32::consts::PI, 1000);
+        assert!((area - 2.0).abs() < 1e-4, "area={area}");
+    }
+
+    #[test]
+    fn simpson_x_squared() {
+        let area = integrate_simpson(|x| x * x, 0.0, 1.0, 100);
+        assert!((area - 1.0 / 3.0).abs() < 1e-6, "area={area}");
+    }
+
+    #[test]
+    fn simpson_more_accurate_than_trapezoidal() {
+        let true_val = 1.0_f32 / 3.0;
+        let trap = integrate_trapezoidal(|x| x * x, 0.0, 1.0, 100);
+        let simp = integrate_simpson(|x| x * x, 0.0, 1.0, 100);
+        assert!((simp - true_val).abs() < (trap - true_val).abs());
+    }
+
+    // ── van_der_pol ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn van_der_pol_mu_zero_is_harmonic() {
+        // mu=0: simple harmonic oscillator, energy conserved
+        let (x, v) = (0..10000).fold((1.0_f32, 0.0_f32), |(x, v), _| {
+            van_der_pol_step(x, v, 0.0, 0.001)
+        });
+        let energy = x * x + v * v;
+        assert!((energy - 1.0).abs() < 0.01, "energy={energy}");
+    }
+
+    #[test]
+    fn van_der_pol_limit_cycle() {
+        // mu>0: should converge to limit cycle (bounded amplitude)
+        let (x, v) = (0..50000).fold((0.1_f32, 0.0_f32), |(x, v), _| {
+            van_der_pol_step(x, v, 1.0, 0.001)
+        });
+        assert!(x.abs() < 3.0 && v.abs() < 5.0, "x={x}, v={v} — should be bounded");
+    }
+
+    #[test]
+    fn van_der_pol_deterministic() {
+        let a = van_der_pol_step(1.0, 0.0, 1.0, 0.01);
+        let b = van_der_pol_step(1.0, 0.0, 1.0, 0.01);
+        assert_eq!(a, b);
     }
 }
