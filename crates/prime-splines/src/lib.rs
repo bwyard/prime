@@ -16,6 +16,8 @@
 //! - `catmull_rom` / `catmull_rom_3d` — Catmull-Rom (smooth through control points)
 //! - `b_spline_cubic` / `b_spline_cubic_3d` — uniform cubic B-spline segment
 //! - `slerp` — spherical linear interpolation for unit quaternions
+//! - `bezier_cubic_arc_length` / `bezier_cubic_arc_length_3d` — approximate arc length
+//! - `bezier_cubic_t_at_length` / `bezier_cubic_t_at_length_3d` — inverse arc-length parameterisation
 
 // ── Quadratic Bezier ──────────────────────────────────────────────────────────
 
@@ -426,6 +428,174 @@ pub fn slerp(
     )
 }
 
+// ── Arc-length parameterisation ───────────────────────────────────────────────
+
+/// Approximate arc length of a 1-D cubic Bezier by subdividing into `steps` linear segments.
+///
+/// # Math
+///
+/// ```text
+/// L ≈ Σ |B(t_i) - B(t_{i-1})|   for i = 1..steps, t_i = i / steps
+/// ```
+///
+/// # Example
+/// ```rust
+/// # use prime_splines::bezier_cubic_arc_length;
+/// let len = bezier_cubic_arc_length(0.0, 1.0, 2.0, 3.0, 100);
+/// assert!((len - 3.0).abs() < 0.01); // straight line p0=0, p1=1, p2=2, p3=3
+/// ```
+pub fn bezier_cubic_arc_length(p0: f32, p1: f32, p2: f32, p3: f32, steps: usize) -> f32 {
+    (1..=steps)
+        .fold((0.0_f32, p0), |(acc, prev), i| {
+            let t = i as f32 / steps as f32;
+            let curr = bezier_cubic(t, p0, p1, p2, p3);
+            (acc + (curr - prev).abs(), curr)
+        })
+        .0
+}
+
+/// Approximate arc length of a 3-D cubic Bezier by subdividing into `steps` linear segments.
+///
+/// # Math
+///
+/// ```text
+/// L ≈ Σ |B(t_i) - B(t_{i-1})|   (Euclidean distance in 3-D)
+/// ```
+///
+/// # Example
+/// ```rust
+/// # use prime_splines::bezier_cubic_arc_length_3d;
+/// // Straight line from origin to (3, 0, 0)
+/// let len = bezier_cubic_arc_length_3d(
+///     (0.0, 0.0, 0.0), (1.0, 0.0, 0.0),
+///     (2.0, 0.0, 0.0), (3.0, 0.0, 0.0), 100,
+/// );
+/// assert!((len - 3.0).abs() < 0.01);
+/// ```
+pub fn bezier_cubic_arc_length_3d(
+    p0: (f32, f32, f32),
+    p1: (f32, f32, f32),
+    p2: (f32, f32, f32),
+    p3: (f32, f32, f32),
+    steps: usize,
+) -> f32 {
+    (1..=steps)
+        .fold((0.0_f32, p0), |(acc, prev), i| {
+            let t = i as f32 / steps as f32;
+            let curr = bezier_cubic_3d(t, p0, p1, p2, p3);
+            let dx = curr.0 - prev.0;
+            let dy = curr.1 - prev.1;
+            let dz = curr.2 - prev.2;
+            (acc + (dx * dx + dy * dy + dz * dz).sqrt(), curr)
+        })
+        .0
+}
+
+/// Find the parameter `t` corresponding to a target arc length along a 1-D cubic Bezier.
+///
+/// Uses binary search over `t` in `[0, 1]` to find the `t` where the arc length
+/// from `t=0` equals `target_length`. Returns `t` within tolerance after `iterations`
+/// bisection steps.
+///
+/// # Arguments
+/// * `p0..p3`        — control points
+/// * `target_length` — desired arc length from `t=0`
+/// * `steps`         — subdivision count for each arc-length measurement
+/// * `iterations`    — number of binary-search bisection steps
+///
+/// # Example
+/// ```rust
+/// # use prime_splines::bezier_cubic_t_at_length;
+/// // Straight line 0→3: half the length should be at t≈0.5
+/// let t = bezier_cubic_t_at_length(0.0, 1.0, 2.0, 3.0, 1.5, 100, 20);
+/// assert!((t - 0.5).abs() < 0.01);
+/// ```
+pub fn bezier_cubic_t_at_length(
+    p0: f32,
+    p1: f32,
+    p2: f32,
+    p3: f32,
+    target_length: f32,
+    steps: usize,
+    iterations: usize,
+) -> f32 {
+    // Binary search helper: compute arc length from 0 to t_max
+    let arc_length_to = |t_max: f32| -> f32 {
+        if t_max <= 0.0 {
+            return 0.0;
+        }
+        (1..=steps)
+            .fold((0.0_f32, p0), |(acc, prev), i| {
+                let t = t_max * i as f32 / steps as f32;
+                let curr = bezier_cubic(t, p0, p1, p2, p3);
+                (acc + (curr - prev).abs(), curr)
+            })
+            .0
+    };
+
+    let (mut lo, mut hi) = (0.0_f32, 1.0_f32);
+    for _ in 0..iterations {
+        let mid = (lo + hi) * 0.5;
+        if arc_length_to(mid) < target_length {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    (lo + hi) * 0.5
+}
+
+/// Find the parameter `t` corresponding to a target arc length along a 3-D cubic Bezier.
+///
+/// Uses binary search over `t` in `[0, 1]`.
+///
+/// # Example
+/// ```rust
+/// # use prime_splines::bezier_cubic_t_at_length_3d;
+/// let t = bezier_cubic_t_at_length_3d(
+///     (0.0, 0.0, 0.0), (1.0, 0.0, 0.0),
+///     (2.0, 0.0, 0.0), (3.0, 0.0, 0.0),
+///     1.5, 100, 20,
+/// );
+/// assert!((t - 0.5).abs() < 0.01);
+/// ```
+pub fn bezier_cubic_t_at_length_3d(
+    p0: (f32, f32, f32),
+    p1: (f32, f32, f32),
+    p2: (f32, f32, f32),
+    p3: (f32, f32, f32),
+    target_length: f32,
+    steps: usize,
+    iterations: usize,
+) -> f32 {
+    let arc_length_to = |t_max: f32| -> f32 {
+        if t_max <= 0.0 {
+            return 0.0;
+        }
+        (1..=steps)
+            .fold((0.0_f32, p0), |(acc, prev), i| {
+                let t = t_max * i as f32 / steps as f32;
+                let curr = bezier_cubic_3d(t, p0, p1, p2, p3);
+                let dx = curr.0 - prev.0;
+                let dy = curr.1 - prev.1;
+                let dz = curr.2 - prev.2;
+                (acc + (dx * dx + dy * dy + dz * dz).sqrt(), curr)
+            })
+            .0
+    };
+
+    let (mut lo, mut hi) = (0.0_f32, 1.0_f32);
+    for _ in 0..iterations {
+        let mid = (lo + hi) * 0.5;
+        if arc_length_to(mid) < target_length {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    (lo + hi) * 0.5
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -690,5 +860,124 @@ mod tests {
     #[test]
     fn catmull_rom_extrapolates_below_t0() {
         assert!(catmull_rom(-0.5, 0.0, 1.0, 2.0, 3.0).is_finite());
+    }
+
+    // ── bezier_cubic_arc_length ──────────────────────────────────────────────
+
+    #[test]
+    fn arc_length_straight_line() {
+        // Collinear points 0→3: arc length should equal 3.0
+        let len = bezier_cubic_arc_length(0.0, 1.0, 2.0, 3.0, 200);
+        assert!((len - 3.0).abs() < 0.01, "len={len}");
+    }
+
+    #[test]
+    fn arc_length_curve_exceeds_chord() {
+        // Curved bezier: arc length should be greater than chord length |p3 - p0| = 1.0
+        let len = bezier_cubic_arc_length(0.0, 5.0, -5.0, 1.0, 200);
+        assert!(len > 1.0, "curve arc length {len} should exceed chord 1.0");
+    }
+
+    #[test]
+    fn arc_length_degenerate_zero() {
+        // All points the same → arc length = 0
+        let len = bezier_cubic_arc_length(2.0, 2.0, 2.0, 2.0, 100);
+        assert!(len.abs() < EPSILON, "len={len}");
+    }
+
+    #[test]
+    fn arc_length_3d_straight_line() {
+        let len = bezier_cubic_arc_length_3d(
+            (0.0, 0.0, 0.0),
+            (1.0, 0.0, 0.0),
+            (2.0, 0.0, 0.0),
+            (3.0, 0.0, 0.0),
+            200,
+        );
+        assert!((len - 3.0).abs() < 0.01, "len={len}");
+    }
+
+    #[test]
+    fn arc_length_3d_curve_exceeds_chord() {
+        let p0 = (0.0, 0.0, 0.0);
+        let p1 = (0.0, 5.0, 0.0);
+        let p2 = (0.0, -5.0, 0.0);
+        let p3 = (1.0, 0.0, 0.0);
+        let len = bezier_cubic_arc_length_3d(p0, p1, p2, p3, 200);
+        let chord = ((p3.0 - p0.0).powi(2) + (p3.1 - p0.1).powi(2) + (p3.2 - p0.2).powi(2)).sqrt();
+        assert!(len > chord, "arc {len} should exceed chord {chord}");
+    }
+
+    #[test]
+    fn arc_length_3d_diagonal() {
+        // Straight line from (0,0,0) to (1,1,1): length = sqrt(3)
+        let len = bezier_cubic_arc_length_3d(
+            (0.0, 0.0, 0.0),
+            (1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0),
+            (2.0 / 3.0, 2.0 / 3.0, 2.0 / 3.0),
+            (1.0, 1.0, 1.0),
+            200,
+        );
+        let expected = 3.0_f32.sqrt();
+        assert!((len - expected).abs() < 0.01, "len={len}, expected={expected}");
+    }
+
+    // ── bezier_cubic_t_at_length ─────────────────────────────────────────────
+
+    #[test]
+    fn t_at_length_midpoint_straight_line() {
+        // Straight line 0→3: half-length (1.5) at t≈0.5
+        let t = bezier_cubic_t_at_length(0.0, 1.0, 2.0, 3.0, 1.5, 100, 30);
+        assert!((t - 0.5).abs() < 0.01, "t={t}");
+    }
+
+    #[test]
+    fn t_at_length_zero_returns_zero() {
+        let t = bezier_cubic_t_at_length(0.0, 1.0, 2.0, 3.0, 0.0, 100, 30);
+        assert!(t < 0.01, "t={t}");
+    }
+
+    #[test]
+    fn t_at_length_full_returns_one() {
+        let total = bezier_cubic_arc_length(0.0, 1.0, 2.0, 3.0, 200);
+        let t = bezier_cubic_t_at_length(0.0, 1.0, 2.0, 3.0, total, 100, 30);
+        assert!((t - 1.0).abs() < 0.01, "t={t}");
+    }
+
+    #[test]
+    fn t_at_length_3d_midpoint() {
+        let t = bezier_cubic_t_at_length_3d(
+            (0.0, 0.0, 0.0),
+            (1.0, 0.0, 0.0),
+            (2.0, 0.0, 0.0),
+            (3.0, 0.0, 0.0),
+            1.5,
+            100,
+            30,
+        );
+        assert!((t - 0.5).abs() < 0.01, "t={t}");
+    }
+
+    #[test]
+    fn t_at_length_3d_deterministic() {
+        let a = bezier_cubic_t_at_length_3d(
+            (0.0, 0.0, 0.0),
+            (0.0, 5.0, 0.0),
+            (5.0, 0.0, 0.0),
+            (5.0, 5.0, 0.0),
+            3.0,
+            100,
+            30,
+        );
+        let b = bezier_cubic_t_at_length_3d(
+            (0.0, 0.0, 0.0),
+            (0.0, 5.0, 0.0),
+            (5.0, 0.0, 0.0),
+            (5.0, 5.0, 0.0),
+            3.0,
+            100,
+            30,
+        );
+        assert_eq!(a, b);
     }
 }

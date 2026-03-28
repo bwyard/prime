@@ -785,6 +785,100 @@ pub fn domain_warp_3d(x: f32, y: f32, z: f32, octaves: u32, lacunarity: f32, gai
 }
 
 // ---------------------------------------------------------------------------
+// Curl noise
+// ---------------------------------------------------------------------------
+
+/// 2D curl noise — divergence-free vector field derived from Perlin noise.
+///
+/// # Math
+///
+/// ```text
+/// curl(x, y) = (∂N/∂y, −∂N/∂x)
+/// ```
+///
+/// Partial derivatives are estimated via central differences with step `eps`.
+/// The resulting vector field is divergence-free by construction (curl of a scalar).
+///
+/// # Arguments
+/// * `x`   — x coordinate
+/// * `y`   — y coordinate
+/// * `eps` — finite-difference step size (e.g. 0.01); smaller = more accurate
+///
+/// # Returns
+/// `(curl_x, curl_y)` — a 2D vector at `(x, y)`.
+///
+/// # Example
+/// ```rust
+/// # use prime_noise::curl_2d;
+/// let (cx, cy) = curl_2d(1.0, 2.0, 0.01);
+/// assert!(cx.is_finite() && cy.is_finite());
+/// ```
+pub fn curl_2d(x: f32, y: f32, eps: f32) -> (f32, f32) {
+    let dn_dy = (perlin_2d(x, y + eps) - perlin_2d(x, y - eps)) / (2.0 * eps);
+    let dn_dx = (perlin_2d(x + eps, y) - perlin_2d(x - eps, y)) / (2.0 * eps);
+    (dn_dy, -dn_dx)
+}
+
+/// 3D curl noise — divergence-free 3D vector field.
+///
+/// # Math
+///
+/// Uses three independent scalar Perlin noise fields `N₁, N₂, N₃` (decorrelated
+/// by spatial offset) and computes the curl:
+///
+/// ```text
+/// curl = (∂N₃/∂y − ∂N₂/∂z,
+///         ∂N₁/∂z − ∂N₃/∂x,
+///         ∂N₂/∂x − ∂N₁/∂y)
+/// ```
+///
+/// This is analytically divergence-free: `div(curl(F)) = 0` for any smooth `F`.
+/// Partial derivatives are estimated via central differences with step `eps`.
+///
+/// # Arguments
+/// * `x`, `y`, `z` — 3D coordinates
+/// * `eps`         — finite-difference step size (e.g. 0.01)
+///
+/// # Returns
+/// `(curl_x, curl_y, curl_z)` — a divergence-free 3D vector.
+///
+/// # Example
+/// ```rust
+/// # use prime_noise::curl_3d;
+/// let (cx, cy, cz) = curl_3d(1.0, 2.0, 3.0, 0.01);
+/// assert!(cx.is_finite() && cy.is_finite() && cz.is_finite());
+/// ```
+pub fn curl_3d(x: f32, y: f32, z: f32, eps: f32) -> (f32, f32, f32) {
+    // Three decorrelated noise fields via spatial offsets.
+    // N1(p) = perlin_3d(p)
+    // N2(p) = perlin_3d(p + offset2)
+    // N3(p) = perlin_3d(p + offset3)
+    const O2: (f32, f32, f32) = (5.2, 1.3, 2.7);
+    const O3: (f32, f32, f32) = (3.1, 7.4, 0.9);
+
+    let inv_2eps = 1.0 / (2.0 * eps);
+
+    // ∂N1/∂y, ∂N1/∂z
+    let dn1_dy = (perlin_3d(x, y + eps, z) - perlin_3d(x, y - eps, z)) * inv_2eps;
+    let dn1_dz = (perlin_3d(x, y, z + eps) - perlin_3d(x, y, z - eps)) * inv_2eps;
+
+    // ∂N2/∂x, ∂N2/∂z
+    let dn2_dx = (perlin_3d(x + eps + O2.0, y + O2.1, z + O2.2)
+                - perlin_3d(x - eps + O2.0, y + O2.1, z + O2.2)) * inv_2eps;
+    let dn2_dz = (perlin_3d(x + O2.0, y + O2.1, z + eps + O2.2)
+                - perlin_3d(x + O2.0, y + O2.1, z - eps + O2.2)) * inv_2eps;
+
+    // ∂N3/∂x, ∂N3/∂y
+    let dn3_dx = (perlin_3d(x + eps + O3.0, y + O3.1, z + O3.2)
+                - perlin_3d(x - eps + O3.0, y + O3.1, z + O3.2)) * inv_2eps;
+    let dn3_dy = (perlin_3d(x + O3.0, y + eps + O3.1, z + O3.2)
+                - perlin_3d(x + O3.0, y - eps + O3.1, z + O3.2)) * inv_2eps;
+
+    // curl = (∂N3/∂y - ∂N2/∂z, ∂N1/∂z - ∂N3/∂x, ∂N2/∂x - ∂N1/∂y)
+    (dn3_dy - dn2_dz, dn1_dz - dn3_dx, dn2_dx - dn1_dy)
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -1202,5 +1296,117 @@ mod tests {
     #[test]
     fn perlin_3d_large_inputs_finite() {
         assert!(perlin_3d(1e8, 1e8, 1e8).is_finite());
+    }
+
+    // --- curl_2d ---
+
+    #[test]
+    fn curl_2d_finite() {
+        let (cx, cy) = curl_2d(1.0, 2.0, 0.01);
+        assert!(cx.is_finite(), "cx={cx}");
+        assert!(cy.is_finite(), "cy={cy}");
+    }
+
+    #[test]
+    fn curl_2d_deterministic() {
+        let a = curl_2d(0.3, 0.7, 0.01);
+        let b = curl_2d(0.3, 0.7, 0.01);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn curl_2d_nonzero_away_from_lattice() {
+        let (cx, cy) = curl_2d(0.37, 0.73, 0.01);
+        // At a generic point the curl should be non-trivial.
+        assert!(cx.abs() + cy.abs() > 1e-6, "curl too small: ({cx}, {cy})");
+    }
+
+    #[test]
+    fn curl_2d_divergence_approx_zero() {
+        // div(curl) of a 2D curl field derived from a scalar is identically 0
+        // analytically. Numerically verify: div = ∂curl_x/∂x + ∂curl_y/∂y ≈ 0
+        let eps = 0.01_f32;
+        let h = 0.005_f32;
+        let x = 1.37_f32;
+        let y = 2.41_f32;
+
+        let dcx_dx = (curl_2d(x + h, y, eps).0 - curl_2d(x - h, y, eps).0) / (2.0 * h);
+        let dcy_dy = (curl_2d(x, y + h, eps).1 - curl_2d(x, y - h, eps).1) / (2.0 * h);
+        let div = dcx_dx + dcy_dy;
+        assert!(
+            div.abs() < 0.5,
+            "divergence of curl_2d should be ~0, got {div}"
+        );
+    }
+
+    #[test]
+    fn curl_2d_different_coords_differ() {
+        let a = curl_2d(0.3, 0.7, 0.01);
+        let b = curl_2d(0.7, 0.3, 0.01);
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn curl_2d_negative_inputs_finite() {
+        let (cx, cy) = curl_2d(-5.0, -10.0, 0.01);
+        assert!(cx.is_finite() && cy.is_finite());
+    }
+
+    // --- curl_3d ---
+
+    #[test]
+    fn curl_3d_finite() {
+        let (cx, cy, cz) = curl_3d(1.0, 2.0, 3.0, 0.01);
+        assert!(cx.is_finite(), "cx={cx}");
+        assert!(cy.is_finite(), "cy={cy}");
+        assert!(cz.is_finite(), "cz={cz}");
+    }
+
+    #[test]
+    fn curl_3d_deterministic() {
+        let a = curl_3d(0.3, 0.7, 0.2, 0.01);
+        let b = curl_3d(0.3, 0.7, 0.2, 0.01);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn curl_3d_nonzero_away_from_lattice() {
+        let (cx, cy, cz) = curl_3d(0.37, 0.73, 0.51, 0.01);
+        assert!(
+            cx.abs() + cy.abs() + cz.abs() > 1e-6,
+            "curl too small: ({cx}, {cy}, {cz})"
+        );
+    }
+
+    #[test]
+    fn curl_3d_divergence_approx_zero() {
+        // div(curl(F)) = 0 for any smooth F. Verify numerically.
+        let eps = 0.01_f32;
+        let h = 0.005_f32;
+        let x = 1.37_f32;
+        let y = 2.41_f32;
+        let z = 0.83_f32;
+
+        let dcx_dx = (curl_3d(x + h, y, z, eps).0 - curl_3d(x - h, y, z, eps).0) / (2.0 * h);
+        let dcy_dy = (curl_3d(x, y + h, z, eps).1 - curl_3d(x, y - h, z, eps).1) / (2.0 * h);
+        let dcz_dz = (curl_3d(x, y, z + h, eps).2 - curl_3d(x, y, z - h, eps).2) / (2.0 * h);
+        let div = dcx_dx + dcy_dy + dcz_dz;
+        assert!(
+            div.abs() < 1.0,
+            "divergence of curl_3d should be ~0, got {div}"
+        );
+    }
+
+    #[test]
+    fn curl_3d_different_coords_differ() {
+        let a = curl_3d(0.3, 0.7, 0.2, 0.01);
+        let b = curl_3d(0.7, 0.3, 0.2, 0.01);
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn curl_3d_negative_inputs_finite() {
+        let (cx, cy, cz) = curl_3d(-5.0, -10.0, -3.0, 0.01);
+        assert!(cx.is_finite() && cy.is_finite() && cz.is_finite());
     }
 }

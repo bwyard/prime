@@ -70,6 +70,21 @@ pub fn lfo_sawtooth(phase: f32) -> f32 {
     2.0 * p - 1.0
 }
 
+/// Cosine LFO. `phase` in [0, 1] maps to one full cycle.
+///
+/// # Math
+///   y = cos(phase × 2π)
+///
+/// # Example
+/// ```rust
+/// # use prime_osc::lfo_cosine;
+/// assert!((lfo_cosine(0.0) - 1.0).abs() < 1e-5);
+/// assert!((lfo_cosine(0.5) - (-1.0)).abs() < 1e-5);
+/// ```
+pub fn lfo_cosine(phase: f32) -> f32 {
+    (phase * TAU).cos()
+}
+
 /// Square wave at normalised phase.
 ///
 /// # Math
@@ -315,6 +330,21 @@ mod tests {
     #[test]
     fn sawtooth_range() {
         (0..1000).map(|i| lfo_sawtooth(i as f32 / 1000.0))
+            .for_each(|v| { assert!(v >= -1.0 - EPS && v <= 1.0 + EPS); });
+    }
+
+    // lfo_cosine
+    #[test]
+    fn cosine_zero_phase() { assert!((lfo_cosine(0.0) - 1.0).abs() < EPS); }
+    #[test]
+    fn cosine_quarter_phase() { assert!((lfo_cosine(0.25)).abs() < EPS); }
+    #[test]
+    fn cosine_half_phase() { assert!((lfo_cosine(0.5) + 1.0).abs() < EPS); }
+    #[test]
+    fn cosine_three_quarter_phase() { assert!((lfo_cosine(0.75)).abs() < EPS); }
+    #[test]
+    fn cosine_range() {
+        (0..1000).map(|i| lfo_cosine(i as f32 / 1000.0))
             .for_each(|v| { assert!(v >= -1.0 - EPS && v <= 1.0 + EPS); });
     }
 
