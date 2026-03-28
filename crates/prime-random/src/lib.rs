@@ -28,7 +28,8 @@
 //! causal datum and the function that reads it.
 
 use std::f32::consts::PI;
-use im::Vector as PersistentVec;
+// Note: im::Vector was benchmarked but Vec clone is faster at typical grid sizes
+// (<5600 cells). Persistent data structures win at >10K elements. See ADR-001.
 
 // ── Pure PRNG primitives ─────────────────────────────────────────────────────
 
@@ -437,13 +438,13 @@ struct BridsonParams {
 
 #[derive(Clone)]
 struct BridsonState {
-    grid: PersistentVec<Option<(f32, f32)>>,
+    grid: Vec<Option<(f32, f32)>>,
     active: Vec<usize>,
     points: Vec<(f32, f32)>,
     seed: u32,
 }
 
-fn bridson_too_close(x: f32, y: f32, grid: &PersistentVec<Option<(f32, f32)>>, p: &BridsonParams) -> bool {
+fn bridson_too_close(x: f32, y: f32, grid: &[Option<(f32, f32)>], p: &BridsonParams) -> bool {
     let cx = (x / p.cell_size) as usize;
     let cy = (y / p.cell_size) as usize;
     let r = 2usize;
@@ -493,7 +494,9 @@ fn bridson_step(state: &BridsonState, p: &BridsonParams) -> BridsonState {
         let cell_idx = (cy / p.cell_size) as usize * p.cols + (cx / p.cell_size) as usize;
         let new_pt_idx = state.points.len();
         BridsonState {
-            grid: state.grid.update(cell_idx, Some((cx, cy))),
+            grid: state.grid.iter().enumerate()
+                .map(|(i, v)| if i == cell_idx { Some((cx, cy)) } else { *v })
+                .collect(),
             active: state.active.iter().copied()
                 .chain(std::iter::once(new_pt_idx))
                 .collect(),
@@ -520,7 +523,7 @@ fn bridson_step(state: &BridsonState, p: &BridsonParams) -> BridsonState {
 /// Bridson's algorithm (2007) as a pure state fold (ADVANCE).
 /// Each step is `(state) -> new_state`. No mutable shared state.
 ///
-/// Performance: uses persistent vector for O(log n) grid updates.
+/// Performance: each step clones the spatial grid O(cols x rows).
 /// Typical game domains (< 2000x2000, min_dist > 5) are negligible.
 /// ```rust
 /// # use prime_random::poisson_disk_2d;
@@ -546,7 +549,7 @@ pub fn poisson_disk_2d(
     let y0 = y0f * height;
     let cell_idx0 = (y0 / cell_size) as usize * cols + (x0 / cell_size) as usize;
 
-    let initial_grid: PersistentVec<Option<(f32, f32)>> = (0..cols * rows)
+    let initial_grid: Vec<Option<(f32, f32)>> = (0..cols * rows)
         .map(|i| if i == cell_idx0 { Some((x0, y0)) } else { None })
         .collect();
 
