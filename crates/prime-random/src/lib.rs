@@ -28,6 +28,7 @@
 //! causal datum and the function that reads it.
 
 use std::f32::consts::PI;
+use im::Vector as PersistentVec;
 
 // ── Pure PRNG primitives ─────────────────────────────────────────────────────
 
@@ -427,7 +428,7 @@ pub fn monte_carlo_1d_with_variance(
 struct BridsonParams {
     width: f32,
     height: f32,
-    min_dist: f32,
+    min_dist_sq: f32,
     max_attempts: usize,
     cols: usize,
     rows: usize,
@@ -436,13 +437,13 @@ struct BridsonParams {
 
 #[derive(Clone)]
 struct BridsonState {
-    grid: Vec<Option<(f32, f32)>>,
+    grid: PersistentVec<Option<(f32, f32)>>,
     active: Vec<usize>,
     points: Vec<(f32, f32)>,
     seed: u32,
 }
 
-fn bridson_too_close(x: f32, y: f32, grid: &[Option<(f32, f32)>], p: &BridsonParams) -> bool {
+fn bridson_too_close(x: f32, y: f32, grid: &PersistentVec<Option<(f32, f32)>>, p: &BridsonParams) -> bool {
     let cx = (x / p.cell_size) as usize;
     let cy = (y / p.cell_size) as usize;
     let r = 2usize;
@@ -455,7 +456,7 @@ fn bridson_too_close(x: f32, y: f32, grid: &[Option<(f32, f32)>], p: &BridsonPar
             grid[gy * p.cols + gx].is_some_and(|(px, py)| {
                 let dx = x - px;
                 let dy = y - py;
-                dx * dx + dy * dy < p.min_dist * p.min_dist
+                dx * dx + dy * dy < p.min_dist_sq
             })
         )
     )
@@ -475,8 +476,7 @@ fn bridson_step(state: &BridsonState, p: &BridsonParams) -> BridsonState {
             let (angle_f, s2) = prng_next(s);
             let (dist_f, s3) = prng_next(s2);
             let angle = angle_f * PI * 2.0;
-            let r2 = p.min_dist * p.min_dist;
-            let dist = (r2 + dist_f * 3.0 * r2).sqrt();
+            let dist = (p.min_dist_sq + dist_f * 3.0 * p.min_dist_sq).sqrt();
             let cx = ax + angle.cos() * dist;
             let cy = ay + angle.sin() * dist;
             if cx < 0.0 || cx >= p.width || cy < 0.0 || cy >= p.height {
@@ -493,9 +493,7 @@ fn bridson_step(state: &BridsonState, p: &BridsonParams) -> BridsonState {
         let cell_idx = (cy / p.cell_size) as usize * p.cols + (cx / p.cell_size) as usize;
         let new_pt_idx = state.points.len();
         BridsonState {
-            grid: state.grid.iter().enumerate()
-                .map(|(i, v)| if i == cell_idx { Some((cx, cy)) } else { *v })
-                .collect(),
+            grid: state.grid.update(cell_idx, Some((cx, cy))),
             active: state.active.iter().copied()
                 .chain(std::iter::once(new_pt_idx))
                 .collect(),
@@ -506,7 +504,7 @@ fn bridson_step(state: &BridsonState, p: &BridsonParams) -> BridsonState {
         }
     } else {
         BridsonState {
-            grid: state.grid.clone(),
+            grid: state.grid.clone(),  // O(1) for persistent vector
             active: state.active.iter().enumerate()
                 .filter(|(i, _)| *i != ai)
                 .map(|(_, &v)| v)
@@ -522,7 +520,7 @@ fn bridson_step(state: &BridsonState, p: &BridsonParams) -> BridsonState {
 /// Bridson's algorithm (2007) as a pure state fold (ADVANCE).
 /// Each step is `(state) -> new_state`. No mutable shared state.
 ///
-/// Performance: each step clones the spatial grid O(cols x rows).
+/// Performance: uses persistent vector for O(log n) grid updates.
 /// Typical game domains (< 2000x2000, min_dist > 5) are negligible.
 /// ```rust
 /// # use prime_random::poisson_disk_2d;
@@ -539,7 +537,8 @@ pub fn poisson_disk_2d(
     let cell_size = min_dist / 2.0_f32.sqrt();
     let cols = (width / cell_size).ceil() as usize + 1;
     let rows = (height / cell_size).ceil() as usize + 1;
-    let p = BridsonParams { width, height, min_dist, max_attempts, cols, rows, cell_size };
+    let min_dist_sq = min_dist * min_dist;
+    let p = BridsonParams { width, height, min_dist_sq, max_attempts, cols, rows, cell_size };
 
     let (x0f, s1) = prng_next(seed);
     let (y0f, s2) = prng_next(s1);
@@ -547,7 +546,7 @@ pub fn poisson_disk_2d(
     let y0 = y0f * height;
     let cell_idx0 = (y0 / cell_size) as usize * cols + (x0 / cell_size) as usize;
 
-    let initial_grid: Vec<Option<(f32, f32)>> = (0..cols * rows)
+    let initial_grid: PersistentVec<Option<(f32, f32)>> = (0..cols * rows)
         .map(|i| if i == cell_idx0 { Some((x0, y0)) } else { None })
         .collect();
 

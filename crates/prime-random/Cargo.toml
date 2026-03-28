@@ -9,6 +9,7 @@ keywords    = ["random", "prng", "procedural", "deterministic", "game-dev"]
 categories  = ["mathematics", "game-engines"]
 
 [dependencies]
+im = "15"
 
 [dev-dependencies]
 criterion = { workspace = true }
