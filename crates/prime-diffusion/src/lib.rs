@@ -2,7 +2,7 @@
 //!
 //! All public functions are pure (LOAD + COMPUTE only). No `&mut`, no side effects,
 //! no hidden state. Noise is either supplied externally (caller-provided standard normal `w`)
-//! or generated deterministically from a threaded `u64` seed.
+//! or generated deterministically from a threaded `u32` seed via `prime_random::prng_gaussian`.
 //!
 //! # Temporal Assembly Model
 //! - **LOAD** — read parameters + state
@@ -17,42 +17,6 @@
 //! - `ou_step_seeded` — OU step with deterministic Gaussian noise from threaded seed
 //! - `gbm_step` — Geometric Brownian motion step (caller-supplied noise)
 //! - `gbm_step_seeded` — GBM step with deterministic noise from threaded seed
-
-// ── Internal noise helpers ────────────────────────────────────────────────────
-
-/// Xorshift64 PRNG: maps a `u64` seed to `(uniform_01, next_seed)`.
-///
-/// Not cryptographically secure, but deterministic and sufficient for
-/// stochastic simulation. Period = 2⁶⁴ − 1.
-#[inline(always)]
-fn xorshift64(seed: u64) -> (f32, u64) {
-    let s = seed ^ (seed << 13);
-    let s = s ^ (s >> 7);
-    let s = s ^ (s << 17);
-    let u = (s as u32) as f32 / u32::MAX as f32;
-    (u, s)
-}
-
-/// Box-Muller transform: two independent uniform [0,1) samples → standard normal.
-///
-/// `u1` must be > 0 to avoid `ln(0)`. In practice the RNG used here never
-/// produces exactly 0 from a non-zero seed, but callers can clamp if needed.
-#[inline(always)]
-fn box_muller(u1: f32, u2: f32) -> f32 {
-    (-2.0 * u1.ln()).sqrt() * (2.0 * std::f32::consts::PI * u2).cos()
-}
-
-/// Draw one standard-normal sample from a seed.
-///
-/// Returns `(z, next_seed)` where `z ~ N(0, 1)`.
-#[inline(always)]
-fn normal_from_seed(seed: u64) -> (f32, u64) {
-    let (u1, s1) = xorshift64(seed);
-    let (u2, s2) = xorshift64(s1);
-    // Guard u1 against zero (astronomically rare but avoids ln(0))
-    let u1_safe = if u1 < f32::EPSILON { f32::EPSILON } else { u1 };
-    (box_muller(u1_safe, u2), s2)
-}
 
 // ── Ornstein-Uhlenbeck ────────────────────────────────────────────────────────
 
@@ -100,13 +64,13 @@ pub fn ou_step(x: f32, mu: f32, theta: f32, sigma: f32, dt: f32, w: f32) -> f32 
 
 /// Ornstein-Uhlenbeck step with deterministic seeded noise.
 ///
-/// Generates one standard-normal sample from `seed` via Box-Muller, then
-/// applies [`ou_step`]. Threads the seed forward so callers can chain steps
+/// Generates one standard-normal sample from `seed` via `prime_random::prng_gaussian`,
+/// then applies [`ou_step`]. Threads the seed forward so callers can chain steps
 /// without external RNG state.
 ///
 /// # Arguments
 /// * `x`, `mu`, `theta`, `sigma`, `dt` — same as [`ou_step`]
-/// * `seed` — `u64` RNG state (non-zero); threads forward deterministically
+/// * `seed` — `u32` RNG state (non-zero); threads forward deterministically
 ///
 /// # Returns
 /// `(x_next, next_seed)` — new value and advanced seed.
@@ -114,12 +78,12 @@ pub fn ou_step(x: f32, mu: f32, theta: f32, sigma: f32, dt: f32, w: f32) -> f32 
 /// # Example
 /// ```rust
 /// use prime_diffusion::ou_step_seeded;
-/// let (x1, s1) = ou_step_seeded(1.0, 0.0, 0.5, 0.1, 0.01, 12345_u64);
+/// let (x1, s1) = ou_step_seeded(1.0, 0.0, 0.5, 0.1, 0.01, 12345_u32);
 /// let (x2, _)  = ou_step_seeded(x1,  0.0, 0.5, 0.1, 0.01, s1);
 /// assert!(x1 != 1.0);
 /// ```
-pub fn ou_step_seeded(x: f32, mu: f32, theta: f32, sigma: f32, dt: f32, seed: u64) -> (f32, u64) {
-    let (w, next_seed) = normal_from_seed(seed);
+pub fn ou_step_seeded(x: f32, mu: f32, theta: f32, sigma: f32, dt: f32, seed: u32) -> (f32, u32) {
+    let (w, next_seed) = prime_random::prng_gaussian(seed);
     (ou_step(x, mu, theta, sigma, dt, w), next_seed)
 }
 
@@ -165,8 +129,8 @@ pub fn gbm_step(x: f32, mu: f32, sigma: f32, dt: f32, w: f32) -> f32 {
 
 /// Geometric Brownian motion step with deterministic seeded noise.
 ///
-/// Identical to [`gbm_step`] but generates noise from `seed` via Box-Muller
-/// and threads the seed forward.
+/// Identical to [`gbm_step`] but generates noise from `seed` via
+/// `prime_random::prng_gaussian` and threads the seed forward.
 ///
 /// # Returns
 /// `(x_next, next_seed)`.
@@ -174,11 +138,11 @@ pub fn gbm_step(x: f32, mu: f32, sigma: f32, dt: f32, w: f32) -> f32 {
 /// # Example
 /// ```rust
 /// use prime_diffusion::gbm_step_seeded;
-/// let (x1, s1) = gbm_step_seeded(1.0, 0.05, 0.2, 0.01, 42_u64);
+/// let (x1, s1) = gbm_step_seeded(1.0, 0.05, 0.2, 0.01, 42_u32);
 /// assert!(x1 > 0.0);
 /// ```
-pub fn gbm_step_seeded(x: f32, mu: f32, sigma: f32, dt: f32, seed: u64) -> (f32, u64) {
-    let (w, next_seed) = normal_from_seed(seed);
+pub fn gbm_step_seeded(x: f32, mu: f32, sigma: f32, dt: f32, seed: u32) -> (f32, u32) {
+    let (w, next_seed) = prime_random::prng_gaussian(seed);
     (gbm_step(x, mu, sigma, dt, w), next_seed)
 }
 
@@ -189,7 +153,7 @@ mod tests {
     use super::*;
 
     const EPSILON: f32 = 1e-4;
-    const SEED: u64 = 0xDEAD_BEEF_1234_5678;
+    const SEED: u32 = 0xDEAD_BEEF;
 
     // ── ou_step ───────────────────────────────────────────────────────────────
 
@@ -317,23 +281,6 @@ mod tests {
             gbm_step_seeded(x, 0.0, 0.2, 0.01, s)
         });
         assert!(x > 0.0, "GBM chain must stay positive; x={x}");
-    }
-
-    // ── box_muller near-zero u1 ───────────────────────────────────────────────
-
-    #[test]
-    fn box_muller_near_zero_u1_is_finite() {
-        // u1 near 0 (but > 0) → ln is large negative → result is large but finite.
-        let w = box_muller(f32::MIN_POSITIVE, 0.5);
-        assert!(w.is_finite(), "box_muller(MIN_POSITIVE, 0.5) produced non-finite: {w}");
-    }
-
-    #[test]
-    fn box_muller_typical_inputs_finite() {
-        // Normal operating range: u1, u2 in (0, 1).
-        let w = box_muller(0.5, 0.5);
-        assert!(w.is_finite(), "box_muller(0.5, 0.5) produced non-finite: {w}");
-        assert!((w).abs() < 10.0, "box_muller(0.5, 0.5) suspiciously large: {w}");
     }
 
     // ── ou_step / gbm_step edge cases ─────────────────────────────────────────
