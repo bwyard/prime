@@ -119,6 +119,27 @@ export const prngNextWithEntropy = (seed: number, entropy: number): [number, num
   return [value, (next ^ entropy) >>> 0]
 }
 
+// ── Causal traceability ─────────────────────────────────────────────────────
+
+/** A value with its causal parent recorded. */
+export type CausalStep<T> = {
+  readonly value: T
+  readonly parentSeed: number
+  readonly nextSeed: number
+}
+
+/** prngNext with causal ancestry recorded. */
+export const prngNextCausal = (seed: number): CausalStep<number> => {
+  const [value, nextSeed] = prngNext(seed)
+  return { value, parentSeed: seed, nextSeed }
+}
+
+/** prngGaussian with causal ancestry recorded. */
+export const prngGaussianCausal = (seed: number): CausalStep<number> => {
+  const [value, nextSeed] = prngGaussian(seed)
+  return { value, parentSeed: seed, nextSeed }
+}
+
 // ── Pure higher-order functions ─────────────────────────────────────────────
 
 /**

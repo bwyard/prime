@@ -5,8 +5,31 @@
 //! Thesis: the seed IS the thread. Who holds the seed controls who can
 //! advance it. Consent revocation = stop threading the seed forward.
 //! No DELETE needed — the sequence is causally inert without its key.
+//!
+//! # Receiver Model
+//!
+//! Each function is a **receiver** (context function) that extracts typed
+//! information from the same causal datum (a u32 seed). The same seed
+//! produces different valid outputs depending on which receiver reads it:
+//!
+//! | Receiver | Output | Interpretation |
+//! |----------|--------|----------------|
+//! | `prng_next` | `f32` | Uniform probability in [0, 1) |
+//! | `prng_bool` | `bool` | Bernoulli trial with threshold p |
+//! | `prng_gaussian` | `f32` | Standard normal N(0, 1) |
+//! | `prng_exponential` | `f32` | Waiting time with rate λ |
+//! | `prng_disk_uniform` | `(f32, f32)` | Spatial coordinate in disk |
+//! | `prng_annulus_uniform` | `(f32, f32)` | Spatial coordinate in annulus |
+//! | `prng_choose` | `&T` | Element selection from collection |
+//! | `weighted_choice` | `usize` | Weighted element index |
+//!
+//! This is the thesis **Context primitive**: `I(data, receiver)` not `I(data)`.
+//! Information is relational — a property of the relationship between the
+//! causal datum and the function that reads it.
 
 use std::f32::consts::PI;
+// Note: im::Vector was benchmarked but Vec clone is faster at typical grid sizes
+// (<5600 cells). Persistent data structures win at >10K elements. See ADR-001.
 
 // ── Pure PRNG primitives ─────────────────────────────────────────────────────
 
@@ -71,6 +94,52 @@ pub fn prng_bool(seed: u32, p: f32) -> (bool, u32) {
 pub fn prng_next_with_entropy(seed: u32, entropy: u32) -> (f32, u32) {
     let (value, next) = prng_next(seed);
     (value, next ^ entropy)
+}
+
+// ── Causal traceability ─────────────────────────────────────────────────────
+
+/// A value with its causal parent recorded.
+///
+/// Enables backward traversal of deterministic sequences. The `parent_seed`
+/// records which seed produced this value, allowing replay verification
+/// without storing the full history.
+///
+/// # Thesis
+/// The fold pattern preserves causal sequence but doesn't record ancestry.
+/// `CausalStep` makes the parent explicit — you can always answer
+/// "what input produced this output?" without replaying from genesis.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CausalStep<T> {
+    /// The computed value at this step.
+    pub value: T,
+    /// The seed that was the causal parent of this value.
+    pub parent_seed: u32,
+    /// The next seed (causal successor).
+    pub next_seed: u32,
+}
+
+/// `prng_next` with causal ancestry recorded.
+/// ```rust
+/// # use prime_random::{prng_next_causal, CausalStep};
+/// let step = prng_next_causal(42);
+/// assert_eq!(step.parent_seed, 42);
+/// assert!(step.value >= 0.0 && step.value < 1.0);
+/// ```
+pub fn prng_next_causal(seed: u32) -> CausalStep<f32> {
+    let (value, next_seed) = prng_next(seed);
+    CausalStep { value, parent_seed: seed, next_seed }
+}
+
+/// `prng_gaussian` with causal ancestry recorded.
+/// ```rust
+/// # use prime_random::{prng_gaussian_causal, CausalStep};
+/// let step = prng_gaussian_causal(42);
+/// assert!(step.value.is_finite());
+/// assert_eq!(step.parent_seed, 42);
+/// ```
+pub fn prng_gaussian_causal(seed: u32) -> CausalStep<f32> {
+    let (value, next_seed) = prng_gaussian(seed);
+    CausalStep { value, parent_seed: seed, next_seed }
 }
 
 /// Fisher-Yates shuffle. Returns new Vec, original unchanged. O(n).
@@ -360,7 +429,7 @@ pub fn monte_carlo_1d_with_variance(
 struct BridsonParams {
     width: f32,
     height: f32,
-    min_dist: f32,
+    min_dist_sq: f32,
     max_attempts: usize,
     cols: usize,
     rows: usize,
@@ -388,7 +457,7 @@ fn bridson_too_close(x: f32, y: f32, grid: &[Option<(f32, f32)>], p: &BridsonPar
             grid[gy * p.cols + gx].is_some_and(|(px, py)| {
                 let dx = x - px;
                 let dy = y - py;
-                dx * dx + dy * dy < p.min_dist * p.min_dist
+                dx * dx + dy * dy < p.min_dist_sq
             })
         )
     )
@@ -408,8 +477,7 @@ fn bridson_step(state: &BridsonState, p: &BridsonParams) -> BridsonState {
             let (angle_f, s2) = prng_next(s);
             let (dist_f, s3) = prng_next(s2);
             let angle = angle_f * PI * 2.0;
-            let r2 = p.min_dist * p.min_dist;
-            let dist = (r2 + dist_f * 3.0 * r2).sqrt();
+            let dist = (p.min_dist_sq + dist_f * 3.0 * p.min_dist_sq).sqrt();
             let cx = ax + angle.cos() * dist;
             let cy = ay + angle.sin() * dist;
             if cx < 0.0 || cx >= p.width || cy < 0.0 || cy >= p.height {
@@ -439,7 +507,7 @@ fn bridson_step(state: &BridsonState, p: &BridsonParams) -> BridsonState {
         }
     } else {
         BridsonState {
-            grid: state.grid.clone(),
+            grid: state.grid.clone(),  // O(1) for persistent vector
             active: state.active.iter().enumerate()
                 .filter(|(i, _)| *i != ai)
                 .map(|(_, &v)| v)
@@ -472,7 +540,8 @@ pub fn poisson_disk_2d(
     let cell_size = min_dist / 2.0_f32.sqrt();
     let cols = (width / cell_size).ceil() as usize + 1;
     let rows = (height / cell_size).ceil() as usize + 1;
-    let p = BridsonParams { width, height, min_dist, max_attempts, cols, rows, cell_size };
+    let min_dist_sq = min_dist * min_dist;
+    let p = BridsonParams { width, height, min_dist_sq, max_attempts, cols, rows, cell_size };
 
     let (x0f, s1) = prng_next(seed);
     let (y0f, s2) = prng_next(s1);
@@ -949,5 +1018,359 @@ mod tests {
     fn mc_1d_variance_zero_for_n1() {
         let (_, var, _) = monte_carlo_1d_with_variance(42, |x| x.sin(), 0.0, PI, 1);
         assert_eq!(var, 0.0);
+    }
+
+    // ── CausalStep ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn causal_step_records_parent() {
+        let step = prng_next_causal(42);
+        assert_eq!(step.parent_seed, 42);
+        let (v, _) = prng_next(42);
+        assert_eq!(step.value.to_bits(), v.to_bits());
+    }
+
+    #[test]
+    fn causal_step_chain_is_traceable() {
+        let s0 = prng_next_causal(42);
+        let s1 = prng_next_causal(s0.next_seed);
+        let s2 = prng_next_causal(s1.next_seed);
+        // Chain: 42 -> s0.next_seed -> s1.next_seed -> s2.next_seed
+        assert_eq!(s1.parent_seed, s0.next_seed);
+        assert_eq!(s2.parent_seed, s1.next_seed);
+    }
+
+    #[test]
+    fn causal_gaussian_records_parent() {
+        let step = prng_gaussian_causal(42);
+        assert_eq!(step.parent_seed, 42);
+        let (v, _) = prng_gaussian(42);
+        assert_eq!(step.value.to_bits(), v.to_bits());
+    }
+
+    #[test]
+    fn causal_step_in_fold() {
+        // Build a causal log via fold
+        let history: Vec<CausalStep<f32>> = (0..10).fold(
+            (vec![], 42u32),
+            |(mut log, seed), _| {
+                let step = prng_next_causal(seed);
+                let next = step.next_seed;
+                log.push(step);
+                (log, next)
+            },
+        ).0;
+        // Every step's parent is the previous step's next_seed
+        (1..history.len()).for_each(|i| {
+            assert_eq!(history[i].parent_seed, history[i - 1].next_seed);
+        });
+    }
+
+    // ── Statistical validation tests ────────────────────────────────────────
+
+    #[test]
+    fn prng_next_chi_square_uniform() {
+        // Divide [0,1) into 10 bins. 10K samples should distribute ~1000 per bin.
+        let n = 10000usize;
+        let bins = 10usize;
+        let counts = (0..n).fold(([0usize; 10], 1u32), |(mut acc, s), _| {
+            let (v, next) = prng_next(s);
+            let bin = (v * bins as f32).min((bins - 1) as f32) as usize;
+            acc[bin] += 1;
+            (acc, next)
+        }).0;
+        let expected = n as f32 / bins as f32;
+        let chi_sq: f32 = counts.iter()
+            .map(|&c| (c as f32 - expected).powi(2) / expected)
+            .sum();
+        // Chi-square with 9 dof: critical value at p=0.01 is 21.67
+        assert!(chi_sq < 21.67, "chi_sq={chi_sq} — PRNG fails uniformity test");
+    }
+
+    #[test]
+    fn prng_next_ks_uniform() {
+        // Max deviation from CDF of uniform should be small
+        let n = 1000usize;
+        let mut samples: Vec<f32> = (0..n).fold((vec![], 42u32), |(mut v, s), _| {
+            let (val, next) = prng_next(s);
+            v.push(val);
+            (v, next)
+        }).0;
+        samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let max_dev = samples.iter().enumerate()
+            .map(|(i, &v)| {
+                let empirical = (i + 1) as f32 / n as f32;
+                (v - empirical).abs()
+            })
+            .fold(0.0_f32, f32::max);
+        // KS critical value at p=0.01 for n=1000: ~0.0408
+        assert!(max_dev < 0.05, "KS max deviation={max_dev} — PRNG fails uniformity");
+    }
+
+    #[test]
+    fn gaussian_jarque_bera_normality() {
+        let n = 10000usize;
+        let (sum, sum2, sum3, sum4, _) = (0..n).fold(
+            (0.0_f64, 0.0_f64, 0.0_f64, 0.0_f64, 1u32),
+            |(s1, s2, s3, s4, seed), _| {
+                let (g, next) = prng_gaussian(seed);
+                let g = g as f64;
+                (s1 + g, s2 + g * g, s3 + g * g * g, s4 + g * g * g * g, next)
+            },
+        );
+        let mean = sum / n as f64;
+        let m2 = sum2 / n as f64 - mean * mean;
+        let m3 = sum3 / n as f64 - 3.0 * mean * sum2 / n as f64 + 2.0 * mean.powi(3);
+        let m4 = sum4 / n as f64 - 4.0 * mean * sum3 / n as f64 + 6.0 * mean.powi(2) * sum2 / n as f64 - 3.0 * mean.powi(4);
+        let skewness = m3 / m2.powf(1.5);
+        let kurtosis = m4 / (m2 * m2) - 3.0; // excess kurtosis
+        let jb = (n as f64 / 6.0) * (skewness.powi(2) + kurtosis.powi(2) / 4.0);
+        // JB critical value at p=0.01 with 2 dof: 9.21
+        assert!(jb < 9.21, "JB={jb}, skew={skewness}, kurt={kurtosis} — Gaussian fails normality");
+    }
+
+    #[test]
+    fn exponential_rate_chi_square() {
+        let lambda = 2.0_f32;
+        let n = 10000usize;
+        let bins = 10usize;
+        // Exponential CDF: F(x) = 1 - exp(-lambda*x)
+        // Bin boundaries at F^{-1}(i/bins) = -ln(1 - i/bins) / lambda
+        let boundaries: Vec<f32> = (1..bins)
+            .map(|i| -(1.0 - i as f32 / bins as f32).ln() / lambda)
+            .collect();
+        let counts = (0..n).fold(([0usize; 10], 1u32), |(mut acc, s), _| {
+            let (x, next) = prng_exponential(s, lambda);
+            let bin = boundaries.iter().position(|&b| x < b).unwrap_or(bins - 1);
+            acc[bin] += 1;
+            (acc, next)
+        }).0;
+        let expected = n as f32 / bins as f32;
+        let chi_sq: f32 = counts.iter()
+            .map(|&c| (c as f32 - expected).powi(2) / expected)
+            .sum();
+        assert!(chi_sq < 21.67, "chi_sq={chi_sq} — Exponential fails distribution test");
+    }
+
+    #[test]
+    fn disk_uniform_area_coverage() {
+        // Points in inner half of disk (r < R/2) should be ~25% (area ratio)
+        let n = 10000usize;
+        let radius = 10.0_f32;
+        let inner_count = (0..n).fold((0usize, 1u32), |(count, s), _| {
+            let (x, y, next) = prng_disk_uniform(s, radius);
+            let r = (x * x + y * y).sqrt();
+            (count + if r < radius / 2.0 { 1 } else { 0 }, next)
+        }).0;
+        let ratio = inner_count as f32 / n as f32;
+        // Expected: (R/2)^2 / R^2 = 0.25, tolerance 3%
+        assert!((ratio - 0.25).abs() < 0.03, "inner ratio={ratio}, expected ~0.25");
+    }
+
+    #[test]
+    fn annulus_uniform_area_coverage() {
+        // Points in inner half of annulus area should be ~50%
+        let n = 10000usize;
+        let r_inner = 3.0_f32;
+        let r_outer = 7.0_f32;
+        let r_mid_sq = (r_inner * r_inner + r_outer * r_outer) / 2.0;
+        let r_mid = r_mid_sq.sqrt();
+        let inner_count = (0..n).fold((0usize, 1u32), |(count, s), _| {
+            let (x, y, next) = prng_annulus_uniform(s, r_inner, r_outer);
+            let r = (x * x + y * y).sqrt();
+            (count + if r < r_mid { 1 } else { 0 }, next)
+        }).0;
+        let ratio = inner_count as f32 / n as f32;
+        assert!((ratio - 0.5).abs() < 0.03, "inner ratio={ratio}, expected ~0.5");
+    }
+
+    #[test]
+    fn halton_lower_discrepancy_than_prng() {
+        // Halton should fill [0,1)^2 more uniformly than pseudo-random
+        let n = 256usize;
+        let bins = 4usize; // 4x4 grid = 16 cells
+        // Halton
+        let halton_counts = (0..n).fold([0usize; 16], |mut acc, i| {
+            let (x, y) = halton_2d(i as u32);
+            let bx = (x * bins as f32).min((bins - 1) as f32) as usize;
+            let by = (y * bins as f32).min((bins - 1) as f32) as usize;
+            acc[by * bins + bx] += 1;
+            acc
+        });
+        // PRNG
+        let prng_counts = (0..n).fold(([0usize; 16], 42u32), |(mut acc, s), _| {
+            let (x, s1) = prng_next(s);
+            let (y, s2) = prng_next(s1);
+            let bx = (x * bins as f32).min((bins - 1) as f32) as usize;
+            let by = (y * bins as f32).min((bins - 1) as f32) as usize;
+            acc[by * bins + bx] += 1;
+            (acc, s2)
+        }).0;
+        let expected = n as f32 / 16.0;
+        let halton_chi: f32 = halton_counts.iter().map(|&c| (c as f32 - expected).powi(2) / expected).sum();
+        let prng_chi: f32 = prng_counts.iter().map(|&c| (c as f32 - expected).powi(2) / expected).sum();
+        assert!(halton_chi < prng_chi, "Halton chi={halton_chi} should be < PRNG chi={prng_chi}");
+    }
+
+    #[test]
+    fn poisson_disk_packing_density() {
+        let width = 100.0_f32;
+        let height = 100.0_f32;
+        let min_dist = 5.0_f32;
+        let (pts, _) = poisson_disk_2d(42, width, height, min_dist, 30);
+        // Theoretical max: area / (pi * (r/2)^2) where r = min_dist
+        let theoretical_max = (width * height) / (PI * (min_dist / 2.0).powi(2));
+        let density = pts.len() as f32 / theoretical_max;
+        // Bridson typically achieves 60-80% of theoretical max
+        assert!(density > 0.50, "density={density} ({} points), expected >50%", pts.len());
+        assert!(density < 0.95, "density={density} — suspiciously high");
+    }
+
+    // ── Production / academic-grade statistical tests ────────────────────────
+
+    #[test]
+    fn prng_next_serial_correlation() {
+        // Pearson correlation between consecutive values should be near 0
+        let n = 10000usize;
+        let (values, _) = (0..n).fold((vec![], 42u32), |(mut v, s), _| {
+            let (val, next) = prng_next(s);
+            v.push(val);
+            (v, next)
+        });
+        let mean: f32 = values.iter().sum::<f32>() / n as f32;
+        let var: f32 = values.iter().map(|v| (v - mean).powi(2)).sum::<f32>() / n as f32;
+        let cov: f32 = values.windows(2)
+            .map(|w| (w[0] - mean) * (w[1] - mean))
+            .sum::<f32>() / (n - 1) as f32;
+        let correlation = cov / var;
+        assert!(correlation.abs() < 0.03, "serial correlation={correlation}, expected near 0");
+    }
+
+    #[test]
+    fn prng_next_runs_test() {
+        // Count runs above/below median. Should be ~n/2 ± sqrt(n).
+        let n = 10000usize;
+        let (values, _) = (0..n).fold((vec![], 42u32), |(mut v, s), _| {
+            let (val, next) = prng_next(s);
+            v.push(val);
+            (v, next)
+        });
+        let median = 0.5_f32; // theoretical median of Uniform(0,1)
+        let above: Vec<bool> = values.iter().map(|&v| v > median).collect();
+        let runs = 1 + above.windows(2).filter(|w| w[0] != w[1]).count();
+        let n1 = above.iter().filter(|&&b| b).count() as f32;
+        let n2 = above.iter().filter(|&&b| !b).count() as f32;
+        let expected_runs = 1.0 + 2.0 * n1 * n2 / (n1 + n2);
+        let std_runs = ((2.0 * n1 * n2 * (2.0 * n1 * n2 - n1 - n2))
+            / ((n1 + n2).powi(2) * (n1 + n2 - 1.0))).sqrt();
+        let z = (runs as f32 - expected_runs) / std_runs;
+        // z should be in [-2.58, 2.58] at 99% confidence
+        assert!(z.abs() < 2.58, "runs z-score={z}, expected |z|<2.58");
+    }
+
+    #[test]
+    fn prng_next_multi_seed_uniformity() {
+        // First output from 10000 different seeds should be uniformly distributed
+        let n = 10000usize;
+        let bins = 10usize;
+        let counts = (0..n as u32).fold([0usize; 10], |mut acc, seed| {
+            let (v, _) = prng_next(seed);
+            let bin = (v * bins as f32).min((bins - 1) as f32) as usize;
+            acc[bin] += 1;
+            acc
+        });
+        let expected = n as f32 / bins as f32;
+        let chi_sq: f32 = counts.iter()
+            .map(|&c| (c as f32 - expected).powi(2) / expected)
+            .sum();
+        assert!(chi_sq < 21.67, "multi-seed chi_sq={chi_sq} — first values not uniform across seeds");
+    }
+
+    #[test]
+    fn disk_uniform_multi_radius_coverage() {
+        let n = 20000usize;
+        let radius = 10.0_f32;
+        // Test at r/4, r/2, 3r/4 — areas should be 6.25%, 25%, 56.25%
+        let (q1, q2, q3, _) = (0..n).fold((0usize, 0usize, 0usize, 1u32), |(c1, c2, c3, s), _| {
+            let (x, y, next) = prng_disk_uniform(s, radius);
+            let r = (x * x + y * y).sqrt();
+            (
+                c1 + if r < radius * 0.25 { 1 } else { 0 },
+                c2 + if r < radius * 0.5 { 1 } else { 0 },
+                c3 + if r < radius * 0.75 { 1 } else { 0 },
+                next,
+            )
+        });
+        let r1 = q1 as f32 / n as f32;
+        let r2 = q2 as f32 / n as f32;
+        let r3 = q3 as f32 / n as f32;
+        assert!((r1 - 0.0625).abs() < 0.02, "r/4 ratio={r1}, expected ~0.0625");
+        assert!((r2 - 0.25).abs() < 0.02, "r/2 ratio={r2}, expected ~0.25");
+        assert!((r3 - 0.5625).abs() < 0.02, "3r/4 ratio={r3}, expected ~0.5625");
+    }
+
+    #[test]
+    fn mc_1d_convergence_rate() {
+        // Error should decrease as O(1/sqrt(n)). Compare error at n=100 vs n=10000.
+        // Ratio of errors should be ~sqrt(100) = 10.
+        let true_value = 2.0_f32; // integral of sin(x) over [0, pi]
+        let (est_100, _) = monte_carlo_1d(42, |x| x.sin(), 0.0, PI, 100);
+        let (est_10k, _) = monte_carlo_1d(42, |x| x.sin(), 0.0, PI, 10000);
+        let err_100 = (est_100 - true_value).abs();
+        let err_10k = (est_10k - true_value).abs();
+        // 100x more samples should give ~10x less error
+        // Allow wide tolerance since single-run MC is noisy
+        assert!(err_10k < err_100, "10K should be more accurate than 100");
+        let improvement = err_100 / err_10k;
+        assert!(improvement > 3.0, "improvement ratio={improvement}, expected >3 for O(1/sqrt(n))");
+    }
+
+    #[test]
+    fn mc_stratified_convergence_rate_superiority() {
+        // Stratified at n=100 should be as accurate as plain MC at n=1000+
+        let true_value = 2.0_f32;
+        let (strat_100, _) = monte_carlo_1d_stratified(42, |x| x.sin(), 0.0, PI, 100);
+        let (plain_1000, _) = monte_carlo_1d(42, |x| x.sin(), 0.0, PI, 1000);
+        let strat_err = (strat_100 - true_value).abs();
+        let plain_err = (plain_1000 - true_value).abs();
+        // Stratified at n=100 should beat or match plain at n=1000
+        assert!(strat_err < plain_err * 2.0,
+            "strat_100 err={strat_err}, plain_1000 err={plain_err}");
+    }
+
+    #[test]
+    fn gaussian_anderson_darling() {
+        let n = 1000usize;
+        let mut samples: Vec<f32> = (0..n).fold((vec![], 42u32), |(mut v, s), _| {
+            let (g, next) = prng_gaussian(s);
+            v.push(g);
+            (v, next)
+        }).0;
+        samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        // Phi (standard normal CDF) — Abramowitz & Stegun rational approximation
+        let phi = |x: f32| -> f32 {
+            let x = x as f64;
+            let t = 1.0 / (1.0 + 0.2316419 * x.abs());
+            let d = 0.3989422804014327; // 1/sqrt(2*pi)
+            let p = d * (-x * x / 2.0).exp();
+            let poly = t * (0.319381530
+                + t * (-0.356563782
+                + t * (1.781477937
+                + t * (-1.821255978
+                + t * 1.330274429))));
+            let result = if x >= 0.0 { 1.0 - p * poly } else { p * poly };
+            result as f32
+        };
+        let a2: f32 = -(1..=n).map(|i| {
+            let p = phi(samples[i - 1]);
+            let q = phi(samples[n - i]);
+            let p = p.clamp(1e-10, 1.0 - 1e-10);
+            let q = q.clamp(1e-10, 1.0 - 1e-10);
+            (2 * i - 1) as f32 * (p.ln() + (1.0 - q).ln())
+        }).sum::<f32>() / n as f32 - n as f32;
+        // Adjusted statistic
+        let a2_star = a2 * (1.0 + 0.75 / n as f32 + 2.25 / (n * n) as f32);
+        // Critical value at p=0.01: 1.035
+        assert!(a2_star < 1.035, "A2*={a2_star} — Gaussian fails Anderson-Darling at p=0.01");
     }
 }

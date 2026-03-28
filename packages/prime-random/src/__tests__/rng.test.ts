@@ -20,7 +20,10 @@ import {
   monteCarlo2d,
   monteCarlo1dWithVariance,
   poissonDisk2d,
+  prngNextCausal,
+  prngGaussianCausal,
 } from '../index.js'
+import type { CausalStep } from '../index.js'
 
 // ── prngNext ─────────────────────────────────────────────────────────────────
 
@@ -505,21 +508,100 @@ describe('poissonDisk2d', () => {
   })
 })
 
+// ── CausalStep ──────────────────────────────────────────────────────────────────
+
+describe('prngNextCausal', () => {
+  it('records parent seed', () => {
+    const step = prngNextCausal(42)
+    expect(step.parentSeed).toBe(42)
+    const [v] = prngNext(42)
+    expect(step.value).toBe(v)
+  })
+
+  it('chain is traceable', () => {
+    const s0 = prngNextCausal(42)
+    const s1 = prngNextCausal(s0.nextSeed)
+    const s2 = prngNextCausal(s1.nextSeed)
+    expect(s1.parentSeed).toBe(s0.nextSeed)
+    expect(s2.parentSeed).toBe(s1.nextSeed)
+  })
+
+  it('fold builds traceable log', () => {
+    const history: CausalStep<number>[] = Array.from<null>({ length: 10 }).reduce(
+      ([log, seed]: [CausalStep<number>[], number]): [CausalStep<number>[], number] => {
+        const step = prngNextCausal(seed)
+        return [[...log, step], step.nextSeed]
+      },
+      [[] as CausalStep<number>[], 42] as [CausalStep<number>[], number],
+    )[0]
+    Array.from({ length: history.length - 1 }, (_, i) => i + 1).forEach(i => {
+      expect(history[i].parentSeed).toBe(history[i - 1].nextSeed)
+    })
+  })
+})
+
+describe('prngGaussianCausal', () => {
+  it('records parent seed', () => {
+    const step = prngGaussianCausal(42)
+    expect(step.parentSeed).toBe(42)
+    const [v] = prngGaussian(42)
+    expect(step.value).toBe(v)
+  })
+
+  it('value is finite', () => {
+    const step = prngGaussianCausal(42)
+    expect(Number.isFinite(step.value)).toBe(true)
+  })
+})
+
+// ── Receiver model: same seed, different contexts ───────────────────────────
+
+describe('receiver model', () => {
+  const SEED = 42
+
+  // Every receiver extracts different information from the same seed
+  const receivers = [
+    { name: 'prngNext', fn: () => prngNext(SEED), type: 'uniform' },
+    { name: 'prngBool(0.5)', fn: () => prngBool(SEED, 0.5), type: 'boolean' },
+    { name: 'prngGaussian', fn: () => prngGaussian(SEED), type: 'gaussian' },
+    { name: 'prngExponential(1)', fn: () => prngExponential(SEED, 1.0), type: 'exponential' },
+    { name: 'prngDiskUniform(5)', fn: () => prngDiskUniform(SEED, 5.0), type: 'spatial' },
+    { name: 'prngRangeInt(10)', fn: () => prngRangeInt(SEED, 10), type: 'discrete' },
+  ] as const
+
+  it('all receivers are deterministic on the same seed', () => {
+    receivers.forEach(({ name, fn }) => {
+      const a = fn()
+      const b = fn()
+      expect(a).toEqual(b)
+    })
+  })
+
+  it('different receivers extract different values from the same seed', () => {
+    const values = receivers.map(({ fn }) => JSON.stringify(fn()))
+    const unique = new Set(values)
+    expect(unique.size).toBe(receivers.length)
+  })
+
+  // Golden values — Rust is the reference. Update these if Rust changes.
+  it('prngNext(42) matches Rust golden value', () => {
+    const [v, next] = prngNext(42)
+    expect(v).toBeCloseTo(0.6011038, 5)
+    expect(next).toBe(1831565855)
+  })
+
+  it('prngGaussian(42) matches Rust golden value', () => {
+    const [z] = prngGaussian(42)
+    expect(z).toBeCloseTo(-0.95616, 3)
+  })
+})
+
 // ── Cross-language parity ──────────────────────────────────────────────────────
 //
 // NOTE: Both TS and Rust use identical Mulberry32 algorithm.
 // These tests verify TS-internal stability (regression guard) and structural contracts.
 
 describe('cross-language parity', () => {
-  it('prngNext(42) value is stable at 0.6011037...', () => {
-    // TS Mulberry32: prngNext(42)[0] = 0.6011037519201636
-    const [v] = prngNext(42)
-    expect(v).toBeCloseTo(0.6011038, 5)
-  })
-  it('prngNext(42) next seed is stable', () => {
-    const [, next] = prngNext(42)
-    expect(next).toBe(1831565855)
-  })
   it('prngRange(42, 10, 20) is in [10, 20)', () => {
     const [v] = prngRange(42, 10, 20)
     expect(v).toBeGreaterThanOrEqual(10)
