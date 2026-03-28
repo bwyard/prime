@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   lfoSine,
+  lfoCosine,
   lfoTriangle,
   lfoSawtooth,
   lfoSquare,
@@ -55,6 +56,21 @@ describe('lfoSawtooth', () => {
   it('monotonically increasing within cycle', () =>
     Array.from({ length: 99 }, (_, i) => [lfoSawtooth(i / 100), lfoSawtooth((i + 1) / 100)] as [number, number])
       .forEach(([a, b]) => expect(b).toBeGreaterThan(a - EPS)))
+})
+
+// ── lfoCosine ─────────────────────────────────────────────────────────────────
+
+describe('lfoCosine', () => {
+  it('zero phase → 1', () => expect(Math.abs(lfoCosine(0) - 1)).toBeLessThan(EPS))
+  it('quarter phase → 0', () => expect(Math.abs(lfoCosine(0.25))).toBeLessThan(EPS))
+  it('half phase → -1', () => expect(Math.abs(lfoCosine(0.5) + 1)).toBeLessThan(EPS))
+  it('three-quarter phase → 0', () => expect(Math.abs(lfoCosine(0.75))).toBeLessThan(EPS))
+  it('range [-1, 1]', () =>
+    Array.from({ length: 1000 }, (_, i) => lfoCosine(i / 1000))
+      .forEach(v => {
+        expect(v).toBeGreaterThanOrEqual(-1 - EPS)
+        expect(v).toBeLessThanOrEqual(1 + EPS)
+      }))
 })
 
 // ── lfoSquare ─────────────────────────────────────────────────────────────────
@@ -180,4 +196,8 @@ describe('cross-language parity', () => {
     expect(lfoSquare(0.25)).toBe(1))
   it('lfoSquare(0.75) matches Rust = -1.0', () =>
     expect(lfoSquare(0.75)).toBe(-1))
+  it('lfoCosine(0.0) matches Rust = 1.0', () =>
+    expect(lfoCosine(0.0)).toBeCloseTo(1.0, 5))
+  it('lfoCosine(0.5) matches Rust = -1.0', () =>
+    expect(lfoCosine(0.5)).toBeCloseTo(-1.0, 5))
 })

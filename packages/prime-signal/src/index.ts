@@ -179,3 +179,105 @@ export const deadzone = (value: number, dz: number, curve = 1.0): number => {
   const t = (abs - d) / (1 - d)
   return Math.sign(v) * Math.pow(t, c)
 }
+
+// ── Vec2 / Vec3 variants ─────────────────────────────────────────────────────
+
+/** Vec2 as a tuple. */
+export type Vec2 = [number, number]
+
+/** Vec3 as a tuple. */
+export type Vec3 = [number, number, number]
+
+/**
+ * Smoothdamp for Vec2. Component-wise application of {@link smoothdamp}.
+ *
+ * @param current - Current position [x, y]
+ * @param target - Target position [x, y]
+ * @param velocity - Current velocity [vx, vy]
+ * @param smoothTime - Approx time to reach target (seconds)
+ * @param dt - Delta time (seconds)
+ * @returns `[newPosition, newVelocity]`
+ */
+export const smoothdampVec2 = (
+  current: Vec2,
+  target: Vec2,
+  velocity: Vec2,
+  smoothTime: number,
+  dt: number,
+): [Vec2, Vec2] => {
+  const [x, vx] = smoothdamp(current[0], target[0], velocity[0], smoothTime, dt)
+  const [y, vy] = smoothdamp(current[1], target[1], velocity[1], smoothTime, dt)
+  return [[x, y], [vx, vy]]
+}
+
+/**
+ * Smoothdamp for Vec3. Component-wise application of {@link smoothdamp}.
+ *
+ * @param current - Current position [x, y, z]
+ * @param target - Target position [x, y, z]
+ * @param velocity - Current velocity [vx, vy, vz]
+ * @param smoothTime - Approx time to reach target (seconds)
+ * @param dt - Delta time (seconds)
+ * @returns `[newPosition, newVelocity]`
+ */
+export const smoothdampVec3 = (
+  current: Vec3,
+  target: Vec3,
+  velocity: Vec3,
+  smoothTime: number,
+  dt: number,
+): [Vec3, Vec3] => {
+  const [x, vx] = smoothdamp(current[0], target[0], velocity[0], smoothTime, dt)
+  const [y, vy] = smoothdamp(current[1], target[1], velocity[1], smoothTime, dt)
+  const [z, vz] = smoothdamp(current[2], target[2], velocity[2], smoothTime, dt)
+  return [[x, y, z], [vx, vy, vz]]
+}
+
+/**
+ * Spring for Vec2. Component-wise application of {@link spring}.
+ *
+ * @param position - Current position [x, y]
+ * @param velocity - Current velocity [vx, vy]
+ * @param target - Target position [x, y]
+ * @param stiffness - Spring constant
+ * @param damping - Damping coefficient
+ * @param dt - Delta time (seconds)
+ * @returns `[newPosition, newVelocity]`
+ */
+export const springVec2 = (
+  position: Vec2,
+  velocity: Vec2,
+  target: Vec2,
+  stiffness: number,
+  damping: number,
+  dt: number,
+): [Vec2, Vec2] => {
+  const [x, vx] = spring(position[0], velocity[0], target[0], stiffness, damping, dt)
+  const [y, vy] = spring(position[1], velocity[1], target[1], stiffness, damping, dt)
+  return [[x, y], [vx, vy]]
+}
+
+/**
+ * Spring for Vec3. Component-wise application of {@link spring}.
+ *
+ * @param position - Current position [x, y, z]
+ * @param velocity - Current velocity [vx, vy, vz]
+ * @param target - Target position [x, y, z]
+ * @param stiffness - Spring constant
+ * @param damping - Damping coefficient
+ * @param dt - Delta time (seconds)
+ * @returns `[newPosition, newVelocity]`
+ */
+export const springVec3 = (
+  position: Vec3,
+  velocity: Vec3,
+  target: Vec3,
+  stiffness: number,
+  damping: number,
+  dt: number,
+): [Vec3, Vec3] => {
+  const [x, vx] = spring(position[0], velocity[0], target[0], stiffness, damping, dt)
+  const [y, vy] = spring(position[1], velocity[1], target[1], stiffness, damping, dt)
+  const [z, vz] = spring(position[2], velocity[2], target[2], stiffness, damping, dt)
+  return [[x, y, z], [vx, vy, vz]]
+}

@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { smoothdamp, spring, lowPass, highPass, deadzone } from '../index.js'
+import {
+  smoothdamp, spring, lowPass, highPass, deadzone,
+  smoothdampVec2, smoothdampVec3, springVec2, springVec3,
+} from '../index.js'
+import type { Vec2, Vec3 } from '../index.js'
 
 const EPS = 1e-4
 
@@ -128,6 +132,116 @@ describe('deadzone', () => {
 
   it('quadratic curve smaller than linear near threshold', () => {
     expect(deadzone(0.55, 0.1, 2)).toBeLessThan(deadzone(0.55, 0.1, 1))
+  })
+})
+
+// ── smoothdampVec2 ───────────────────────────────────────────────────────────
+
+describe('smoothdampVec2', () => {
+  it('matches scalar smoothdamp component-wise', () => {
+    const cur: Vec2 = [1, 2]
+    const tgt: Vec2 = [10, 20]
+    const vel: Vec2 = [0.5, -0.3]
+    const [pos2, vel2] = smoothdampVec2(cur, tgt, vel, 0.3, 0.016)
+    const [sx, svx] = smoothdamp(1, 10, 0.5, 0.3, 0.016)
+    const [sy, svy] = smoothdamp(2, 20, -0.3, 0.3, 0.016)
+    expect(pos2[0]).toBeCloseTo(sx, 4)
+    expect(pos2[1]).toBeCloseTo(sy, 4)
+    expect(vel2[0]).toBeCloseTo(svx, 4)
+    expect(vel2[1]).toBeCloseTo(svy, 4)
+  })
+
+  it('approaches target', () => {
+    const target: Vec2 = [10, 5]
+    const [pos] = Array.from<null>({ length: 200 }).reduce(
+      ([p, v]: [Vec2, Vec2]) => smoothdampVec2(p, target, v, 0.3, 0.016),
+      [[0, 0], [0, 0]] as [Vec2, Vec2],
+    )
+    expect(Math.hypot(pos[0] - target[0], pos[1] - target[1])).toBeLessThan(0.01)
+  })
+})
+
+// ── smoothdampVec3 ───────────────────────────────────────────────────────────
+
+describe('smoothdampVec3', () => {
+  it('matches scalar smoothdamp component-wise', () => {
+    const cur: Vec3 = [1, 2, 3]
+    const tgt: Vec3 = [10, 20, 30]
+    const vel: Vec3 = [0.5, -0.3, 1]
+    const [pos3, vel3] = smoothdampVec3(cur, tgt, vel, 0.3, 0.016)
+    const [sx, svx] = smoothdamp(1, 10, 0.5, 0.3, 0.016)
+    const [sy, svy] = smoothdamp(2, 20, -0.3, 0.3, 0.016)
+    const [sz, svz] = smoothdamp(3, 30, 1, 0.3, 0.016)
+    expect(pos3[0]).toBeCloseTo(sx, 4)
+    expect(pos3[1]).toBeCloseTo(sy, 4)
+    expect(pos3[2]).toBeCloseTo(sz, 4)
+    expect(vel3[0]).toBeCloseTo(svx, 4)
+    expect(vel3[1]).toBeCloseTo(svy, 4)
+    expect(vel3[2]).toBeCloseTo(svz, 4)
+  })
+
+  it('approaches target', () => {
+    const target: Vec3 = [10, 5, 3]
+    const [pos] = Array.from<null>({ length: 200 }).reduce(
+      ([p, v]: [Vec3, Vec3]) => smoothdampVec3(p, target, v, 0.3, 0.016),
+      [[0, 0, 0], [0, 0, 0]] as [Vec3, Vec3],
+    )
+    expect(Math.hypot(pos[0] - target[0], pos[1] - target[1], pos[2] - target[2])).toBeLessThan(0.01)
+  })
+})
+
+// ── springVec2 ───────────────────────────────────────────────────────────────
+
+describe('springVec2', () => {
+  it('matches scalar spring component-wise', () => {
+    const pos: Vec2 = [1, 2]
+    const vel: Vec2 = [0.5, -0.3]
+    const tgt: Vec2 = [10, 20]
+    const [p2, v2] = springVec2(pos, vel, tgt, 100, 20, 0.016)
+    const [sx, svx] = spring(1, 0.5, 10, 100, 20, 0.016)
+    const [sy, svy] = spring(2, -0.3, 20, 100, 20, 0.016)
+    expect(p2[0]).toBeCloseTo(sx, 4)
+    expect(p2[1]).toBeCloseTo(sy, 4)
+    expect(v2[0]).toBeCloseTo(svx, 4)
+    expect(v2[1]).toBeCloseTo(svy, 4)
+  })
+
+  it('approaches target', () => {
+    const target: Vec2 = [10, 5]
+    const [pos] = Array.from<null>({ length: 500 }).reduce(
+      ([p, v]: [Vec2, Vec2]) => springVec2(p, v, target, 100, 20, 0.016),
+      [[0, 0], [0, 0]] as [Vec2, Vec2],
+    )
+    expect(Math.hypot(pos[0] - target[0], pos[1] - target[1])).toBeLessThan(0.01)
+  })
+})
+
+// ── springVec3 ───────────────────────────────────────────────────────────────
+
+describe('springVec3', () => {
+  it('matches scalar spring component-wise', () => {
+    const pos: Vec3 = [1, 2, 3]
+    const vel: Vec3 = [0.5, -0.3, 1]
+    const tgt: Vec3 = [10, 20, 30]
+    const [p3, v3] = springVec3(pos, vel, tgt, 100, 20, 0.016)
+    const [sx, svx] = spring(1, 0.5, 10, 100, 20, 0.016)
+    const [sy, svy] = spring(2, -0.3, 20, 100, 20, 0.016)
+    const [sz, svz] = spring(3, 1, 30, 100, 20, 0.016)
+    expect(p3[0]).toBeCloseTo(sx, 4)
+    expect(p3[1]).toBeCloseTo(sy, 4)
+    expect(p3[2]).toBeCloseTo(sz, 4)
+    expect(v3[0]).toBeCloseTo(svx, 4)
+    expect(v3[1]).toBeCloseTo(svy, 4)
+    expect(v3[2]).toBeCloseTo(svz, 4)
+  })
+
+  it('approaches target', () => {
+    const target: Vec3 = [10, 5, 3]
+    const [pos] = Array.from<null>({ length: 500 }).reduce(
+      ([p, v]: [Vec3, Vec3]) => springVec3(p, v, target, 100, 20, 0.016),
+      [[0, 0, 0], [0, 0, 0]] as [Vec3, Vec3],
+    )
+    expect(Math.hypot(pos[0] - target[0], pos[1] - target[1], pos[2] - target[2])).toBeLessThan(0.01)
   })
 })
 
