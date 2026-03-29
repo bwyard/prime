@@ -98,7 +98,7 @@ ADVANCE ← move forward   reduce/fold over time steps
 6. **TypeScript: no `let` — use `const` only.** Production code AND tests.
    - Fold pattern: `Array.from({ length: N }).reduce((state) => step(state, dt), init)`
    - Tuple destructuring `const [a, b] = fn()` threads state explicitly between steps.
-   - Exceptions: `while` loops in Bridson-class algorithms (stack overflow risk) — mark with `// ADVANCE-EXCEPTION`.
+   - Exceptions: `while`/`for` loops where termination is data-dependent (Bridson-class algorithms, adaptive ODE solvers, bounded convergence loops like Newton-Raphson and bisection) — mark with `// ADVANCE-EXCEPTION`. Mutation must be local to the function; same inputs always produce the same output.
 
 ### Flag these patterns
 
