@@ -1,2 +1,635 @@
-// TODO: implement
-export {};
+/**
+ * prime-random — Seeded deterministic randomness.
+ *
+ * All public functions are LOAD + COMPUTE. No STORE. No JUMP. No exceptions.
+ *
+ * The seed IS the thread position. Who holds the seed controls who can
+ * advance it. Stop threading the seed forward to end the sequence —
+ * no DELETE needed, the sequence is causally inert without its key.
+ */
+
+// ── Pure PRNG primitives ────────────────────────────────────────────────────
+
+/**
+ * Mulberry32 pure step — LOAD + COMPUTE only.
+ *
+ * @remarks
+ * The seed IS the thread position. Pass nextSeed forward to continue.
+ * Stop passing it to end the thread — no DELETE required.
+ *
+ * State: z0 = (seed + 0x6D2B79F5) & 0xFFFFFFFF
+ * Output: bit-mixed z0 → float in [0, 1)
+ * Period: 2^32
+ *
+ * @param seed - Current thread position (32-bit unsigned integer)
+ * @returns [value in [0,1), nextSeed] — thread the nextSeed forward
+ *
+ * @example
+ * const [v1, s1] = prngNext(42)
+ * const [v2, s2] = prngNext(s1)
+ */
+export const prngNext = (seed: number): [number, number] => {
+  const z0 = (seed + 0x6D2B79F5) >>> 0
+  const z1 = Math.imul(z0 ^ (z0 >>> 15), z0 | 1)
+  const z2 = z1 ^ (z1 + Math.imul(z1 ^ (z1 >>> 7), z1 | 61))
+  return [((z2 ^ (z2 >>> 14)) >>> 0) / 0x100000000, z0]
+}
+
+/**
+ * Pure float in [min, max).
+ * @returns [value, nextSeed]
+ * @example
+ * const [v, s1] = prngRange(0, 2.0, 5.0) // 2 ≤ v < 5
+ */
+export const prngRange = (seed: number, min: number, max: number): [number, number] => {
+  if (min >= max) return [min, seed]
+  const [v, next] = prngNext(seed)
+  return [min + v * (max - min), next]
+}
+
+/**
+ * Pure integer in [0, n).
+ * @returns [value, nextSeed]
+ * @example
+ * const [i, s1] = prngRangeInt(0, 10) // 0 ≤ i < 10
+ */
+export const prngRangeInt = (seed: number, n: number): [number, number] => {
+  const [v, next] = prngNext(seed)
+  return [Math.floor(v * n), next]
+}
+
+/**
+ * Pure boolean with probability p of true.
+ * @returns [value, nextSeed]
+ * @example
+ * const [flip, s1] = prngBool(0, 0.5)
+ */
+export const prngBool = (seed: number, p: number): [boolean, number] => {
+  const [v, next] = prngNext(seed)
+  return [v < Math.max(0, Math.min(1, p)), next]
+}
+
+/**
+ * Pure Fisher-Yates shuffle — returns new array, original unchanged.
+ * @returns [shuffledArray, nextSeed]
+ * @example
+ * const [shuffled, s1] = prngShuffled(42, [1, 2, 3, 4, 5])
+ */
+export const prngShuffled = <T>(seed: number, arr: readonly T[]): [T[], number] =>
+  Array.from({ length: arr.length - 1 }, (_, k) => arr.length - 1 - k).reduce(
+    ([acc, s]: [T[], number], i) => {
+      const [j, next] = prngRangeInt(s, i + 1)
+      const copy = [...acc] as T[]
+      ;[copy[i], copy[j]] = [copy[j]!, copy[i]!]
+      return [copy, next]
+    },
+    [[...arr] as T[], seed],
+  )
+
+/**
+ * Pure random element from array.
+ * @returns [element | undefined, nextSeed]
+ * @example
+ * const [pick, s1] = prngChoose(0, ['a', 'b', 'c'])
+ */
+export const prngChoose = <T>(seed: number, arr: readonly T[]): [T | undefined, number] => {
+  if (arr.length === 0) return [undefined, seed]
+  const [i, next] = prngRangeInt(seed, arr.length)
+  return [arr[i], next]
+}
+
+// ── Entropy escape hatch ────────────────────────────────────────────────────
+
+/**
+ * Advance PRNG with external entropy mixed into the next seed.
+ *
+ * @remarks
+ * Useful for injecting player input or network jitter into a deterministic
+ * stream without breaking the pure-function contract.
+ *
+ * @param seed - Current thread position
+ * @param entropy - External entropy value (XOR'd into next seed)
+ * @returns [value in [0,1), nextSeed XOR'd with entropy]
+ *
+ * @example
+ * const [v, s1] = prngNextWithEntropy(42, 0xDEADBEEF)
+ */
+export const prngNextWithEntropy = (seed: number, entropy: number): [number, number] => {
+  const [value, next] = prngNext(seed)
+  return [value, (next ^ entropy) >>> 0]
+}
+
+// ── Causal traceability ─────────────────────────────────────────────────────
+
+/** A value with its causal parent recorded. */
+export type CausalStep<T> = {
+  readonly value: T
+  readonly parentSeed: number
+  readonly nextSeed: number
+}
+
+/** prngNext with causal ancestry recorded. */
+export const prngNextCausal = (seed: number): CausalStep<number> => {
+  const [value, nextSeed] = prngNext(seed)
+  return { value, parentSeed: seed, nextSeed }
+}
+
+/** prngGaussian with causal ancestry recorded. */
+export const prngGaussianCausal = (seed: number): CausalStep<number> => {
+  const [value, nextSeed] = prngGaussian(seed)
+  return { value, parentSeed: seed, nextSeed }
+}
+
+// ── Pure higher-order functions ─────────────────────────────────────────────
+
+/**
+ * Weighted random choice — O(n) linear scan. Pure LOAD + COMPUTE.
+ *
+ * @remarks
+ * Sample u ~ Uniform(0, sum(weights)).
+ * Walk weights accumulating until accumulator ≤ 0 → return that index.
+ *
+ * @param seed - Thread position
+ * @param weights - Non-negative weights. Must sum > 0.
+ * @returns [chosenIndex, nextSeed]
+ *
+ * @example
+ * const [i, s1] = weightedChoice(0, [1, 2, 1]) // index 1 is 2× likely
+ */
+export const weightedChoice = (seed: number, weights: readonly number[]): [number, number] => {
+  if (weights.length === 0) return [0, seed]
+  const total = weights.reduce((s, w) => s + w, 0)
+  if (total <= 0) return [weights.length - 1, seed]
+  const [u, s1] = prngRange(seed, 0, total)
+  const { idx } = weights.reduce(
+    ({ remaining, idx }, w, i) =>
+      idx !== -1
+        ? { remaining, idx }
+        : remaining - w <= 0
+          ? { remaining: remaining - w, idx: i }
+          : { remaining: remaining - w, idx: -1 },
+    { remaining: u, idx: -1 },
+  )
+  return [idx !== -1 ? idx : weights.length - 1, s1]
+}
+
+// ── Probability distributions ───────────────────────────────────────────────
+
+/**
+ * Box-Muller transform — single Gaussian sample from N(0, 1).
+ *
+ * # Math
+ *   z = sqrt(-2 * ln(u1)) * cos(2 * pi * u2)
+ *
+ * @param seed - Thread position
+ * @returns [gaussian value, nextSeed]
+ *
+ * @example
+ * const [g, s1] = prngGaussian(42)
+ */
+export const prngGaussian = (seed: number): [number, number] => {
+  const [u1, s1] = prngNext(seed)
+  const [u2, s2] = prngNext(s1)
+  const u1Safe = u1 < 1e-10 ? 1e-10 : u1
+  return [Math.sqrt(-2 * Math.log(u1Safe)) * Math.cos(2 * Math.PI * u2), s2]
+}
+
+/**
+ * Box-Muller transform — both Gaussian values from the pair.
+ *
+ * # Math
+ *   z0 = r * cos(theta), z1 = r * sin(theta)
+ *   where r = sqrt(-2 * ln(u1)), theta = 2 * pi * u2
+ *
+ * @param seed - Thread position
+ * @returns [z0, z1, nextSeed]
+ *
+ * @example
+ * const [g0, g1, s1] = prngGaussianPair(42)
+ */
+export const prngGaussianPair = (seed: number): [number, number, number] => {
+  const [u1, s1] = prngNext(seed)
+  const [u2, s2] = prngNext(s1)
+  const u1Safe = u1 < 1e-10 ? 1e-10 : u1
+  const r = Math.sqrt(-2 * Math.log(u1Safe))
+  const theta = 2 * Math.PI * u2
+  return [r * Math.cos(theta), r * Math.sin(theta), s2]
+}
+
+/**
+ * Exponential distribution sample via inverse CDF.
+ *
+ * # Math
+ *   x = -ln(1 - u) / lambda
+ *
+ * @param seed - Thread position
+ * @param lambda - Rate parameter (must be > 0)
+ * @returns [exponential value, nextSeed]
+ *
+ * @example
+ * const [e, s1] = prngExponential(42, 1.0)
+ */
+export const prngExponential = (seed: number, lambda: number): [number, number] => {
+  const [u, next] = prngNext(seed)
+  return [-Math.log(1 - u) / lambda, next]
+}
+
+/**
+ * Uniform random point inside a disk of given radius.
+ *
+ * # Math
+ *   angle = 2 * pi * u1
+ *   dist = radius * sqrt(u2)   (sqrt for uniform area distribution)
+ *
+ * @param seed - Thread position
+ * @param radius - Disk radius
+ * @returns [x, y, nextSeed]
+ *
+ * @example
+ * const [x, y, s1] = prngDiskUniform(42, 5.0)
+ */
+export const prngDiskUniform = (seed: number, radius: number): [number, number, number] => {
+  const [u1, s1] = prngNext(seed)
+  const [u2, s2] = prngNext(s1)
+  const angle = 2 * Math.PI * u1
+  const dist = radius * Math.sqrt(u2)
+  return [dist * Math.cos(angle), dist * Math.sin(angle), s2]
+}
+
+/**
+ * Uniform random point inside an annulus (ring) between rInner and rOuter.
+ *
+ * # Math
+ *   angle = 2 * pi * u1
+ *   dist = sqrt(rInner^2 + u2 * (rOuter^2 - rInner^2))
+ *
+ * @param seed - Thread position
+ * @param rInner - Inner radius
+ * @param rOuter - Outer radius
+ * @returns [x, y, nextSeed]
+ *
+ * @example
+ * const [x, y, s1] = prngAnnulusUniform(42, 3.0, 6.0)
+ */
+export const prngAnnulusUniform = (seed: number, rInner: number, rOuter: number): [number, number, number] => {
+  const [u1, s1] = prngNext(seed)
+  const [u2, s2] = prngNext(s1)
+  const angle = 2 * Math.PI * u1
+  const dist = Math.sqrt(rInner * rInner + u2 * (rOuter * rOuter - rInner * rInner))
+  return [dist * Math.cos(angle), dist * Math.sin(angle), s2]
+}
+
+// ── Quasi-random sequences ──────────────────────────────────────────────────
+
+/**
+ * Van der Corput sequence — low-discrepancy 1D sequence.
+ *
+ * # Math
+ *   Reflects the base-b digits of n about the decimal point.
+ *
+ * @param n - Sequence index (non-negative integer)
+ * @param base - Number base (typically prime: 2, 3, 5, ...)
+ * @returns Value in [0, 1)
+ *
+ * @example
+ * const v = vanDerCorput(1, 2) // 0.5
+ * const w = vanDerCorput(2, 2) // 0.25
+ */
+export const vanDerCorput = (n: number, base: number): number => {
+  let result = 0
+  let denom = 1
+  let num = n
+  // ADVANCE-EXCEPTION: digit extraction loop with bounded iteration
+  while (num > 0) {
+    denom *= base
+    result += (num % base) / denom
+    num = Math.floor(num / base)
+  }
+  return result
+}
+
+/**
+ * Halton sequence in 2D (bases 2 and 3).
+ *
+ * @param n - Sequence index
+ * @returns [x, y] in [0, 1)^2
+ *
+ * @example
+ * const [x, y] = halton2d(1) // [0.5, 0.333...]
+ */
+export const halton2d = (n: number): [number, number] =>
+  [vanDerCorput(n, 2), vanDerCorput(n, 3)]
+
+/**
+ * Halton sequence in 3D (bases 2, 3, and 5).
+ *
+ * @param n - Sequence index
+ * @returns [x, y, z] in [0, 1)^3
+ *
+ * @example
+ * const [x, y, z] = halton3d(1) // [0.5, 0.333..., 0.2]
+ */
+export const halton3d = (n: number): [number, number, number] =>
+  [vanDerCorput(n, 2), vanDerCorput(n, 3), vanDerCorput(n, 5)]
+
+// ── Monte Carlo integration ─────────────────────────────────────────────────
+
+/**
+ * Monte Carlo integration of f over [a, b].
+ *
+ * # Math
+ *   integral ≈ (b - a) * (1/n) * sum(f(x_i))
+ *   where x_i ~ Uniform(a, b)
+ *
+ * @param seed - Thread position
+ * @param f - Function to integrate
+ * @param a - Lower bound
+ * @param b - Upper bound
+ * @param n - Number of samples
+ * @returns [estimate, nextSeed]
+ *
+ * @example
+ * const [integral, s1] = monteCarlo1d(42, Math.sin, 0, Math.PI, 10000)
+ */
+export const monteCarlo1d = (
+  seed: number,
+  f: (x: number) => number,
+  a: number,
+  b: number,
+  n: number,
+): [number, number] => {
+  const width = b - a
+  const [sum, finalSeed] = Array.from<null>({ length: n }).reduce(
+    ([acc, s]: [number, number]): [number, number] => {
+      const [u, next] = prngNext(s)
+      return [acc + f(a + u * width), next]
+    },
+    [0, seed] as [number, number],
+  )
+  return [(width * sum) / n, finalSeed]
+}
+
+/**
+ * Monte Carlo integration of f over [x0, x1] x [y0, y1].
+ *
+ * # Math
+ *   integral ≈ area * (1/n) * sum(f(x_i, y_i))
+ *   where (x_i, y_i) ~ Uniform([x0,x1] x [y0,y1])
+ *
+ * @param seed - Thread position
+ * @param f - Function to integrate
+ * @param x0 - Lower x bound
+ * @param x1 - Upper x bound
+ * @param y0 - Lower y bound
+ * @param y1 - Upper y bound
+ * @param n - Number of samples
+ * @returns [estimate, nextSeed]
+ *
+ * @example
+ * const [integral, s1] = monteCarlo2d(42, (x, y) => x * y, 0, 1, 0, 1, 10000)
+ */
+export const monteCarlo2d = (
+  seed: number,
+  f: (x: number, y: number) => number,
+  x0: number,
+  x1: number,
+  y0: number,
+  y1: number,
+  n: number,
+): [number, number] => {
+  const area = (x1 - x0) * (y1 - y0)
+  const [sum, finalSeed] = Array.from<null>({ length: n }).reduce(
+    ([acc, s]: [number, number]): [number, number] => {
+      const [ux, s1] = prngNext(s)
+      const [uy, s2] = prngNext(s1)
+      return [acc + f(x0 + ux * (x1 - x0), y0 + uy * (y1 - y0)), s2]
+    },
+    [0, seed] as [number, number],
+  )
+  return [(area * sum) / n, finalSeed]
+}
+
+/**
+ * Monte Carlo integration with variance estimate (Welford's online algorithm).
+ *
+ * # Math
+ *   integral ≈ (b - a) * mean(f(x_i))
+ *   variance via Welford's online algorithm for numerical stability
+ *
+ * @param seed - Thread position
+ * @param f - Function to integrate
+ * @param a - Lower bound
+ * @param b - Upper bound
+ * @param n - Number of samples
+ * @returns [estimate, variance, nextSeed]
+ *
+ * @example
+ * const [integral, variance, s1] = monteCarlo1dWithVariance(42, Math.sin, 0, Math.PI, 10000)
+ */
+export const monteCarlo1dWithVariance = (
+  seed: number,
+  f: (x: number) => number,
+  a: number,
+  b: number,
+  n: number,
+): [number, number, number] => {
+  const width = b - a
+  // Welford's online algorithm
+  const [mean, m2, , finalSeed] = Array.from<null>({ length: n }).reduce(
+    ([prevMean, prevM2, count, s]: [number, number, number, number]): [number, number, number, number] => {
+      const [u, next] = prngNext(s)
+      const sample = f(a + u * width)
+      const newCount = count + 1
+      const delta = sample - prevMean
+      const newMean = prevMean + delta / newCount
+      const delta2 = sample - newMean
+      return [newMean, prevM2 + delta * delta2, newCount, next]
+    },
+    [0, 0, 0, seed] as [number, number, number, number],
+  )
+  return [mean * width, n > 1 ? (m2 / (n - 1)) * width * width : 0, finalSeed]
+}
+
+// ── Pure iterator utility ──────────────────────────────────────────────────
+
+/**
+ * Pure state-machine iterator — mirrors Rust's `std::iter::successors`.
+ *
+ * Repeatedly applies `step` to produce the next state until `step` returns
+ * `null`, then returns the final state. This is the TypeScript equivalent of
+ * Rust's `successors(Some(init), f).last().unwrap()`.
+ *
+ * ADVANCE-EXCEPTION: This utility contains the only `let` + `while` in the
+ * codebase. The exception is necessary because:
+ *
+ * 1. **Data-dependent termination** — algorithms like Bridson's Poisson disk
+ *    sampling terminate when the active list empties. The step count is not
+ *    known in advance, so `Array.from({ length: N }).reduce(...)` would
+ *    require guessing an upper bound and wasting O(N) no-op iterations.
+ *
+ * 2. **Stack overflow risk** — tail recursion (`const go = (s) => step(s)
+ *    === null ? s : go(step(s))`) is elegant but JavaScript engines do not
+ *    guarantee TCO. Bridson on a 500×500 domain with minDist=2 can produce
+ *    50,000+ steps, which exceeds typical call stack limits.
+ *
+ * 3. **Encapsulated mutation** — the `let` rebinding is local to this
+ *    utility. The step function and all callers remain pure `const`. No
+ *    external state is mutated. From the caller's perspective this is a
+ *    pure function: same `init` + same `step` = same result, always.
+ *
+ * 4. **Thesis alignment** — the Temporal Assembly model requires that state
+ *    flows forward through return values. This utility preserves that: each
+ *    call to `step` receives the previous state and returns a new one. The
+ *    `let` is a loop variable, not shared mutable state.
+ *
+ * @param init - Initial state
+ * @param step - Pure state transition; return `null` to terminate
+ * @returns The final state after `step` returns `null`
+ */
+const successors = <T>(init: T, step: (state: T) => T | null): T => {
+  // ADVANCE-EXCEPTION: see detailed rationale above
+  let state = init
+  while (true) {
+    const next = step(state)
+    if (next === null) return state
+    state = next
+  }
+}
+
+// ── Pure Bridson ────────────────────────────────────────────────────────────
+
+type BridsonParams = {
+  readonly width: number
+  readonly height: number
+  readonly minDist: number
+  readonly maxAttempts: number
+  readonly cols: number
+  readonly rows: number
+  readonly cellSize: number
+}
+
+type BridsonState = {
+  readonly grid: readonly ([number, number] | null)[]
+  readonly active: readonly number[]
+  readonly points: readonly [number, number][]
+  readonly seed: number
+}
+
+const bridsonTooClose = (
+  x: number,
+  y: number,
+  grid: readonly ([number, number] | null)[],
+  p: BridsonParams,
+): boolean => {
+  const cx = Math.floor(x / p.cellSize)
+  const cy = Math.floor(y / p.cellSize)
+  const r = 2
+  return Array.from(
+    { length: Math.min(p.rows, cy + r + 1) - Math.max(0, cy - r) },
+    (_, dy) => Math.max(0, cy - r) + dy,
+  ).some(gy =>
+    Array.from(
+      { length: Math.min(p.cols, cx + r + 1) - Math.max(0, cx - r) },
+      (_, dx) => Math.max(0, cx - r) + dx,
+    ).some(gx => {
+      const pt = grid[gy * p.cols + gx]
+      return pt != null && (x - pt[0]) ** 2 + (y - pt[1]) ** 2 < p.minDist * p.minDist
+    }),
+  )
+}
+
+const bridsonStep = (state: BridsonState, p: BridsonParams): BridsonState => {
+  if (state.active.length === 0) return state
+  const [aiF, s1] = prngNext(state.seed)
+  const ai = Math.floor(aiF * state.active.length)
+  const [ax, ay] = state.points[state.active[ai]!]!
+
+  const [candidate, finalSeed] = Array.from<null>({ length: p.maxAttempts }).reduce(
+    ([found, s]: [[number, number] | null, number]): [[number, number] | null, number] => {
+      if (found !== null) return [found, s]
+      const [anglef, s2] = prngNext(s)
+      const [distf, s3] = prngNext(s2)
+      const angle = anglef * Math.PI * 2
+      const r2 = p.minDist * p.minDist
+      const dist = Math.sqrt(r2 + distf * 3.0 * r2)
+      const cx = ax + Math.cos(angle) * dist
+      const cy = ay + Math.sin(angle) * dist
+      return cx >= 0 && cx < p.width && cy >= 0 && cy < p.height && !bridsonTooClose(cx, cy, state.grid, p)
+        ? [[cx, cy] as [number, number], s3]
+        : [null, s3]
+    },
+    [null, s1] as [[number, number] | null, number],
+  )
+
+  if (candidate !== null) {
+    const cellIdx =
+      Math.floor(candidate[1] / p.cellSize) * p.cols + Math.floor(candidate[0] / p.cellSize)
+    return {
+      grid: state.grid.map((v, i) => (i === cellIdx ? candidate : v)),
+      active: [...state.active, state.points.length],
+      points: [...state.points, candidate],
+      seed: finalSeed,
+    }
+  }
+  return {
+    ...state,
+    active: state.active.filter((_, i) => i !== ai),
+    seed: finalSeed,
+  }
+}
+
+/**
+ * Poisson disk sampling — minimum distance spacing in 2D. Pure LOAD + COMPUTE.
+ *
+ * @remarks
+ * Bridson's algorithm (2007) expressed as a pure state fold (ADVANCE).
+ * Each step is an immutable state transition: (state) → newState.
+ * The seed threads through every random draw — no hidden state.
+ *
+ * Performance note: each step copies the spatial grid (O(cols×rows)).
+ * For typical game use (domain < 2000×2000, minDist > 5) this is negligible.
+ *
+ * @param seed - Thread position — same seed → same point distribution
+ * @param width - Sampling domain width
+ * @param height - Sampling domain height
+ * @param minDist - Minimum distance between any two points
+ * @param maxAttempts - Candidates per active point (30 is standard)
+ * @returns [points, nextSeed] — array of [x, y] tuples and the final seed
+ *
+ * @example
+ * const [pts, s1] = poissonDisk2d(42, 100, 100, 10)
+ */
+export const poissonDisk2d = (
+  seed: number,
+  width: number,
+  height: number,
+  minDist: number,
+  maxAttempts = 30,
+): [[number, number][], number] => {
+  const cellSize = minDist / Math.SQRT2
+  const cols = Math.ceil(width / cellSize) + 1
+  const rows = Math.ceil(height / cellSize) + 1
+  const p: BridsonParams = { width, height, minDist, maxAttempts, cols, rows, cellSize }
+
+  const [x0f, s1] = prngNext(seed)
+  const [y0f, s2] = prngNext(s1)
+  const x0 = x0f * width
+  const y0 = y0f * height
+  const cellIdx0 = Math.floor(y0 / cellSize) * cols + Math.floor(x0 / cellSize)
+
+  const initial: BridsonState = {
+    grid: Array.from({ length: cols * rows }, (_, i) =>
+      i === cellIdx0 ? ([x0, y0] as [number, number]) : null,
+    ),
+    active: [0],
+    points: [[x0, y0]],
+    seed: s2,
+  }
+
+  // Pure: successors mirrors Rust's std::iter::successors — no let in domain logic
+  const finalState = successors(initial, (state) =>
+    state.active.length === 0 ? null : bridsonStep(state, p),
+  )
+
+  return [[...finalState.points], finalState.seed]
+}

@@ -13,16 +13,25 @@ members = [
     "crates/prime-voronoi",
     "crates/prime-diffusion",
     "crates/prime-dynamics",
+    "crates/prime-render",
+    "crates/prime-wasm",
 ]
 resolver = "2"
 
 [workspace.dependencies]
-glam     = "0.27"
-rand     = { version = "0.8", features = ["small_rng"] }
-rand_pcg = "0.3"
+glam      = "0.32"
+criterion = { version = "0.8", features = ["html_reports"] }
 
 [workspace.package]
 version    = "0.1.0"
 edition    = "2021"
 license    = "MIT"
 repository = "https://github.com/bwyard/prime"
+
+# No unsafe code, no &mut in public API — pure functions throughout.
+# CI runs: cargo clippy --workspace -- -D warnings (all lints are errors)
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+needless_pass_by_ref_mut = "warn"  # catches &mut params that don't need mutation

@@ -14,3 +14,6 @@ pkg/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local only — not ready to publish
+THESIS.md

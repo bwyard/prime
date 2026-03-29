@@ -1,2 +1,127 @@
-// TODO: implement
-export {};
+/**
+ * prime-voronoi — Voronoi diagrams and Lloyd relaxation.
+ *
+ * All exported functions are pure (LOAD + COMPUTE only). No mutation, no side effects.
+ */
+
+// ── Voronoi nearest ───────────────────────────────────────────────────────────
+
+/**
+ * Find the nearest seed index and Euclidean distance from `query`.
+ *
+ * Math: `(index, dist) = argmin_i dist(query, seeds[i])`
+ *
+ * @param query - `[x, y]` query point
+ * @param seeds - array of `[x, y]` seed points
+ * @returns `[index, distance]` of nearest seed, or `null` if seeds is empty
+ *
+ * @example
+ * voronoiNearest2d([0.1, 0.1], [[0, 0], [1, 0], [0, 1]]) // [0, ~0.141]
+ */
+export const voronoiNearest2d = (
+  query: [number, number],
+  seeds: readonly [number, number][],
+): [number, number] | null => {
+  if (seeds.length === 0) return null
+
+  const [idx, d2] = seeds.reduce(
+    ([bestIdx, bestD2], [sx, sy], i) => {
+      const dx = query[0] - sx
+      const dy = query[1] - sy
+      const d2 = dx * dx + dy * dy
+      return d2 < bestD2 ? [i, d2] : [bestIdx, bestD2]
+    },
+    [0, Infinity] as [number, number],
+  )
+
+  return [idx, Math.sqrt(d2)]
+}
+
+// ── Voronoi F1 + F2 ───────────────────────────────────────────────────────────
+
+/**
+ * Compute F1 (nearest) and F2 (second-nearest) Euclidean distances.
+ *
+ * Used for edge detection and cellular noise patterns on Voronoi diagrams.
+ *
+ * @param query - `[x, y]` query point
+ * @param seeds - array of `[x, y]` seed points
+ * @returns `[f1, f2]` or `null` if seeds is empty
+ *
+ * @example
+ * voronoiF1F2_2d([0.3, 0], [[0, 0], [1, 0]]) // [0.3, 0.7]
+ */
+export const voronoiF1F2_2d = (
+  query: [number, number],
+  seeds: readonly [number, number][],
+): [number, number] | null => {
+  if (seeds.length === 0) return null
+
+  const [f1d2, f2d2] = seeds.reduce(
+    ([f1, f2], [sx, sy]) => {
+      const dx = query[0] - sx
+      const dy = query[1] - sy
+      const d2 = dx * dx + dy * dy
+      if (d2 < f1) return [d2, f1]
+      if (d2 < f2) return [f1, d2]
+      return [f1, f2]
+    },
+    [Infinity, Infinity] as [number, number],
+  )
+
+  return [Math.sqrt(f1d2), Math.sqrt(f2d2)]
+}
+
+// ── Lloyd relaxation ──────────────────────────────────────────────────────────
+
+/**
+ * One step of sample-based Lloyd relaxation in 2-D.
+ *
+ * Assigns each sample to its nearest seed, then moves each seed to the centroid
+ * of its assigned samples. Seeds with no samples assigned remain in place.
+ *
+ * Math:
+ * ```
+ * For each sample s: assign to nearest seed j
+ * new_seed[i] = mean of all samples assigned to seed i
+ *             = original seed[i] if no samples assigned
+ * ```
+ *
+ * @param seeds   - current seed positions `[x, y][]`
+ * @param samples - evaluation points for Voronoi cell estimation
+ * @returns new seed positions (same length as seeds)
+ *
+ * @example
+ * const relaxed = lloydRelaxStep2d([[0.1, 0], [0.9, 0]], grid100x1)
+ * // Seeds move toward [0.25, 0] and [0.75, 0]
+ */
+export const lloydRelaxStep2d = (
+  seeds: readonly [number, number][],
+  samples: readonly [number, number][],
+): [number, number][] => {
+  if (seeds.length === 0) return []
+
+  // Accumulate [sum_x, sum_y, count] per seed
+  const init: [number, number, number][] = seeds.map(() => [0, 0, 0])
+
+  const accum = samples.reduce((acc, [sx, sy]) => {
+    // Find nearest seed index
+    const nearest = seeds.reduce(
+      ([bi, bd2], [px, py], i) => {
+        const dx = sx - px
+        const dy = sy - py
+        const d2 = dx * dx + dy * dy
+        return d2 < bd2 ? [i, d2] : [bi, bd2]
+      },
+      [0, Infinity] as [number, number],
+    )[0]
+
+    return acc.map(([sumX, sumY, count], i): [number, number, number] =>
+      i === nearest ? [sumX + sx, sumY + sy, count + 1] : [sumX, sumY, count],
+    )
+  }, init)
+
+  return accum.map(([sumX, sumY, count], i): [number, number] =>
+    count === 0 ? seeds[i] : [sumX / count, sumY / count],
+  )
+}
