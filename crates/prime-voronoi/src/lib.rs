@@ -15,9 +15,7 @@
 //! - `voronoi_f1_f2_2d` — F1 (nearest) and F2 (second-nearest) distances
 //! - `lloyd_relax_step_2d` — one Lloyd relaxation step (sample-based)
 //!
-//! # Deferred to post-release
-//! - Delaunay triangulation (Bowyer-Watson) — complex algorithm (~200 lines),
-//!   deferred until API surface is stable.
+//! - `delaunay_2d` — Delaunay triangulation via Bowyer-Watson
 
 // ── Voronoi nearest ───────────────────────────────────────────────────────────
 
@@ -209,6 +207,167 @@ pub fn lloyd_relax_step_2d(seeds: &[(f32, f32)], samples: &[(f32, f32)]) -> Vec<
         .collect()
 }
 
+// ── Delaunay triangulation ────────────────────────────────────────────────────
+
+/// Circumcircle test: is point `(px, py)` strictly inside the circumcircle of
+/// triangle `(ax,ay)`, `(bx,by)`, `(cx,cy)`?
+///
+/// Orientation-independent: works for both CW and CCW triangles by checking
+/// the sign of the cross product and adjusting accordingly.
+///
+/// # Math
+/// ```text
+/// | dx  dy  dx²+dy² |
+/// | ex  ey  ex²+ey² | > 0  ⟹  point inside circumcircle (CCW triangle)
+/// | fx  fy  fx²+fy² |
+/// ```
+/// where `(dx,dy) = a - p`, `(ex,ey) = b - p`, `(fx,fy) = c - p`.
+/// For CW triangles the sign is flipped.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn in_circumcircle(
+    px: f32, py: f32,
+    ax: f32, ay: f32,
+    bx: f32, by: f32,
+    cx: f32, cy: f32,
+) -> bool {
+    let dx = ax - px;
+    let dy = ay - py;
+    let ex = bx - px;
+    let ey = by - py;
+    let fx = cx - px;
+    let fy = cy - py;
+
+    let dx2_dy2 = dx * dx + dy * dy;
+    let ex2_ey2 = ex * ex + ey * ey;
+    let fx2_fy2 = fx * fx + fy * fy;
+
+    let det = dx * (ey * fx2_fy2 - fy * ex2_ey2)
+            - dy * (ex * fx2_fy2 - fx * ex2_ey2)
+            + dx2_dy2 * (ex * fy - ey * fx);
+
+    // Check triangle orientation (sign of cross product)
+    let orient = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+
+    // If CCW (orient > 0): det > 0 means inside
+    // If CW  (orient < 0): det < 0 means inside
+    if orient > 0.0 { det > 0.0 } else { det < 0.0 }
+}
+
+/// Delaunay triangulation via Bowyer-Watson. Returns list of triangle index triples.
+///
+/// Each triangle is `(i, j, k)` where `i`, `j`, `k` are indices into the input `points` slice.
+/// Points on the super-triangle boundary are excluded from the output.
+///
+/// # Math
+/// Bowyer-Watson incrementally inserts points, removing triangles whose circumcircle
+/// contains the new point, then re-triangulates the resulting polygonal hole.
+///
+/// # Example
+/// ```rust
+/// use prime_voronoi::delaunay_2d;
+/// let points = vec![(0.0_f32, 0.0), (1.0, 0.0), (0.5, 1.0)];
+/// let tris = delaunay_2d(&points);
+/// assert_eq!(tris.len(), 1);
+/// // Triangle indices reference the input points (order may vary)
+/// let (a, b, c) = tris[0];
+/// assert!(a < 3 && b < 3 && c < 3);
+/// assert_ne!(a, b);
+/// assert_ne!(b, c);
+/// ```
+pub fn delaunay_2d(points: &[(f32, f32)]) -> Vec<(usize, usize, usize)> {
+    if points.len() < 3 {
+        return vec![];
+    }
+
+    // ADVANCE-EXCEPTION: Bowyer-Watson requires triangle set mutation.
+    // Internal only — public API is pure: &[(f32,f32)] -> Vec<(usize,usize,usize)>
+
+    // Compute bounding box
+    let (mut min_x, mut min_y, mut max_x, mut max_y) =
+        (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+    for &(x, y) in points {
+        if x < min_x { min_x = x; }
+        if y < min_y { min_y = y; }
+        if x > max_x { max_x = x; }
+        if y > max_y { max_y = y; }
+    }
+
+    let dx = max_x - min_x;
+    let dy = max_y - min_y;
+    let d_max = dx.max(dy).max(1e-6);
+    let mid_x = (min_x + max_x) * 0.5;
+    let mid_y = (min_y + max_y) * 0.5;
+
+    // Super-triangle vertices (indices: n, n+1, n+2)
+    let n = points.len();
+    let s0 = (mid_x - 20.0 * d_max, mid_y - d_max);
+    let s1 = (mid_x, mid_y + 20.0 * d_max);
+    let s2 = (mid_x + 20.0 * d_max, mid_y - d_max);
+
+    // Extended point list: original points + 3 super-triangle vertices
+    let mut all_points: Vec<(f32, f32)> = points.to_vec();
+    all_points.push(s0);
+    all_points.push(s1);
+    all_points.push(s2);
+
+    // Start with super-triangle
+    let mut triangles: Vec<(usize, usize, usize)> = vec![(n, n + 1, n + 2)];
+
+    for i in 0..n {
+        let (px, py) = all_points[i];
+
+        // Find bad triangles (circumcircle contains point i)
+        let mut bad: Vec<usize> = Vec::new();
+        for (t, &(a, b, c)) in triangles.iter().enumerate() {
+            let (ax, ay) = all_points[a];
+            let (bx, by) = all_points[b];
+            let (cx, cy) = all_points[c];
+            if in_circumcircle(px, py, ax, ay, bx, by, cx, cy) {
+                bad.push(t);
+            }
+        }
+
+        // Find boundary polygon (edges that appear in exactly one bad triangle)
+        let mut edges: Vec<(usize, usize)> = Vec::new();
+        for &t in &bad {
+            let (a, b, c) = triangles[t];
+            let tri_edges = [(a, b), (b, c), (c, a)];
+            for &(e0, e1) in &tri_edges {
+                // Check if this edge is shared with another bad triangle
+                let shared = bad.iter().any(|&other| {
+                    other != t && {
+                        let (oa, ob, oc) = triangles[other];
+                        let other_edges = [(oa, ob), (ob, oc), (oc, oa)];
+                        other_edges.iter().any(|&(o0, o1)| {
+                            (e0 == o0 && e1 == o1) || (e0 == o1 && e1 == o0)
+                        })
+                    }
+                });
+                if !shared {
+                    edges.push((e0, e1));
+                }
+            }
+        }
+
+        // Remove bad triangles (reverse order to preserve indices)
+        bad.sort_unstable();
+        for &t in bad.iter().rev() {
+            triangles.swap_remove(t);
+        }
+
+        // Create new triangles from boundary edges to inserted point
+        for &(e0, e1) in &edges {
+            triangles.push((i, e0, e1));
+        }
+    }
+
+    // Remove triangles that reference super-triangle vertices
+    triangles
+        .into_iter()
+        .filter(|&(a, b, c)| a < n && b < n && c < n)
+        .collect()
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -321,6 +480,64 @@ mod tests {
         }).collect();
         let a = lloyd_relax_step_2d(&seeds, &samples);
         let b = lloyd_relax_step_2d(&seeds, &samples);
+        assert_eq!(a, b);
+    }
+
+    // ── delaunay_2d ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn delaunay_single_triangle() {
+        let pts = vec![(0.0_f32, 0.0), (1.0, 0.0), (0.5, 1.0)];
+        let tris = delaunay_2d(&pts);
+        assert_eq!(tris.len(), 1);
+    }
+
+    #[test]
+    fn delaunay_four_points_two_triangles() {
+        let pts = vec![(0.0_f32, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)];
+        let tris = delaunay_2d(&pts);
+        assert_eq!(tris.len(), 2);
+    }
+
+    #[test]
+    fn delaunay_empty() {
+        let pts: Vec<(f32, f32)> = vec![];
+        let tris = delaunay_2d(&pts);
+        assert!(tris.is_empty());
+    }
+
+    #[test]
+    fn delaunay_two_points() {
+        let pts = vec![(0.0_f32, 0.0), (1.0, 0.0)];
+        let tris = delaunay_2d(&pts);
+        assert!(tris.is_empty());
+    }
+
+    #[test]
+    fn delaunay_circumcircle_property() {
+        // For every Delaunay triangle, no other point should be inside its circumcircle
+        let pts = vec![(0.0_f32, 0.0), (4.0, 0.0), (2.0, 3.0), (1.0, 1.0), (3.0, 1.0)];
+        let tris = delaunay_2d(&pts);
+        assert!(!tris.is_empty());
+        for &(i, j, k) in &tris {
+            let (ax, ay) = pts[i];
+            let (bx, by) = pts[j];
+            let (cx, cy) = pts[k];
+            for (m, &(px, py)) in pts.iter().enumerate() {
+                if m == i || m == j || m == k { continue; }
+                assert!(
+                    !in_circumcircle(px, py, ax, ay, bx, by, cx, cy),
+                    "point {m} inside circumcircle of triangle ({i},{j},{k})"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn delaunay_deterministic() {
+        let pts = vec![(0.0_f32, 0.0), (1.0, 0.0), (0.5, 1.0), (0.5, 0.5)];
+        let a = delaunay_2d(&pts);
+        let b = delaunay_2d(&pts);
         assert_eq!(a, b);
     }
 }

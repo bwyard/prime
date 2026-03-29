@@ -96,6 +96,54 @@ pub fn prng_next_with_entropy(seed: u32, entropy: u32) -> (f32, u32) {
     (value, next ^ entropy)
 }
 
+// ── 64-bit PRNG ─────────────────────────────────────────────────────────────
+
+/// SplitMix64 pure step — 64-bit PRNG with period 2^64.
+///
+/// For applications needing longer sequences than Mulberry32's 2^32 period.
+/// An idle game at 100 draws/frame × 60fps exhausts Mulberry32 in ~8 days.
+/// SplitMix64 lasts ~97 billion years at the same rate.
+///
+/// Same thesis contract: `(seed) -> (value, nextSeed)`.
+/// ```rust
+/// # use prime_random::prng_next_64;
+/// let (v, s1) = prng_next_64(42u64);
+/// assert!(v >= 0.0 && v < 1.0);
+/// ```
+pub fn prng_next_64(seed: u64) -> (f64, u64) {
+    let z0 = seed.wrapping_add(0x9E3779B97F4A7C15);
+    let z1 = (z0 ^ (z0 >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+    let z2 = (z1 ^ (z1 >> 27)).wrapping_mul(0x94D049BB133111EB);
+    let z3 = z2 ^ (z2 >> 31);
+    (z3 as f64 / u64::MAX as f64, z0)
+}
+
+/// 64-bit float in [min, max).
+/// ```rust
+/// # use prime_random::prng_range_f64;
+/// let (v, _) = prng_range_f64(42u64, 10.0, 20.0);
+/// assert!(v >= 10.0 && v < 20.0);
+/// ```
+pub fn prng_range_f64(seed: u64, min: f64, max: f64) -> (f64, u64) {
+    if min >= max { return (min, seed); }
+    let (v, next) = prng_next_64(seed);
+    (min + v * (max - min), next)
+}
+
+/// 64-bit Gaussian via Box-Muller. Higher precision than f32 variant.
+/// ```rust
+/// # use prime_random::prng_gaussian_64;
+/// let (z, _) = prng_gaussian_64(42u64);
+/// assert!(z.is_finite());
+/// ```
+pub fn prng_gaussian_64(seed: u64) -> (f64, u64) {
+    let (u1, s1) = prng_next_64(seed);
+    let (u2, s2) = prng_next_64(s1);
+    let u1_safe = if u1 < f64::EPSILON { f64::EPSILON } else { u1 };
+    let z = (-2.0 * u1_safe.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos();
+    (z, s2)
+}
+
 // ── Causal traceability ─────────────────────────────────────────────────────
 
 /// A value with its causal parent recorded.
@@ -422,6 +470,37 @@ pub fn monte_carlo_1d_with_variance(
     );
     let variance = if n > 1 { m2 / (n - 1) as f32 * width * width } else { 0.0 };
     (mean * width, variance, final_seed)
+}
+
+// ── Memoization ─────────────────────────────────────────────────────────────
+
+/// Evaluate f(x) with memoization over a precomputed lookup table.
+///
+/// Builds a table of n evenly-spaced samples in [a, b], then interpolates.
+/// Thesis-compatible: the table is computed once (LOAD+COMPUTE), then
+/// lookups are O(1) with linear interpolation (pure COMPUTE).
+///
+/// # Returns
+/// A closure that maps x -> f(x) approximately, with O(1) lookup cost.
+///
+/// # Example
+/// ```rust
+/// use prime_random::memoize_1d;
+/// let fast_sin = memoize_1d(|x: f32| x.sin(), 0.0, std::f32::consts::PI, 1000);
+/// assert!((fast_sin(1.0) - 1.0_f32.sin()).abs() < 0.01);
+/// ```
+pub fn memoize_1d(f: fn(f32) -> f32, a: f32, b: f32, n: usize) -> impl Fn(f32) -> f32 {
+    let table: Vec<f32> = (0..=n).map(|i| {
+        let t = i as f32 / n as f32;
+        f(a + t * (b - a))
+    }).collect();
+    let step = (b - a) / n as f32;
+    move |x: f32| {
+        let t = (x - a) / step;
+        let i = (t as usize).min(n - 1);
+        let frac = t - i as f32;
+        table[i] * (1.0 - frac) + table[i + 1] * frac
+    }
 }
 
 // ── Pure Bridson ──────────────────────────────────────────────────────────────
@@ -1336,6 +1415,58 @@ mod tests {
         // Stratified at n=100 should beat or match plain at n=1000
         assert!(strat_err < plain_err * 2.0,
             "strat_100 err={strat_err}, plain_1000 err={plain_err}");
+    }
+
+    // ── prng_next_64 ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn prng_next_64_in_range() {
+        (0..1000u64).for_each(|i| {
+            let (v, _) = prng_next_64(i);
+            assert!(v >= 0.0 && v < 1.0, "prng_next_64({i}) = {v}");
+        });
+    }
+
+    #[test]
+    fn prng_next_64_deterministic() {
+        let (a, sa) = prng_next_64(42);
+        let (b, sb) = prng_next_64(42);
+        assert_eq!(a.to_bits(), b.to_bits());
+        assert_eq!(sa, sb);
+    }
+
+    #[test]
+    fn prng_next_64_different_from_32() {
+        let (v32, _) = prng_next(42);
+        let (v64, _) = prng_next_64(42);
+        // Different algorithms, different values (both valid)
+        assert_ne!(v32 as f64, v64);
+    }
+
+    #[test]
+    fn prng_gaussian_64_finite() {
+        (0..1000u64).for_each(|i| {
+            let (g, _) = prng_gaussian_64(i);
+            assert!(g.is_finite(), "prng_gaussian_64({i}) = {g}");
+        });
+    }
+
+    // ── memoize_1d ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn memoize_1d_approximates_sin() {
+        let fast_sin = memoize_1d(|x| x.sin(), 0.0, std::f32::consts::PI, 1000);
+        // Check at several points
+        for i in 0..100 {
+            let x = i as f32 * std::f32::consts::PI / 100.0;
+            assert!((fast_sin(x) - x.sin()).abs() < 0.01, "x={x}");
+        }
+    }
+
+    #[test]
+    fn memoize_1d_deterministic() {
+        let f = memoize_1d(|x| x * x, 0.0, 10.0, 100);
+        assert_eq!(f(5.0).to_bits(), f(5.0).to_bits());
     }
 
     #[test]

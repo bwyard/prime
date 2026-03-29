@@ -22,6 +22,10 @@ import {
   poissonDisk2d,
   prngNextCausal,
   prngGaussianCausal,
+  prngNext64,
+  prngRange64,
+  prngGaussian64,
+  memoize1d,
 } from '../index.js'
 import type { CausalStep } from '../index.js'
 
@@ -621,5 +625,83 @@ describe('cross-language parity', () => {
     const [pick] = prngChoose(42, v)
     expect(pick).not.toBeNull()
     expect(v.includes(pick!)).toBe(true)
+  })
+})
+
+// ── prngNext64 ──────────────────────────────────────────────────────────────
+
+describe('prngNext64', () => {
+  it('returns value in [0, 1)', () => {
+    Array.from({ length: 1000 }, (_, i) => prngNext64(i)[0])
+      .forEach(v => {
+        expect(v).toBeGreaterThanOrEqual(0)
+        expect(v).toBeLessThan(1)
+      })
+  })
+
+  it('same seed same value', () => {
+    const [a] = prngNext64(42)
+    const [b] = prngNext64(42)
+    expect(a).toBe(b)
+  })
+
+  it('different seeds different values', () => {
+    const vals = Array.from({ length: 20 }, (_, i) => prngNext64(i)[0])
+    expect(new Set(vals).size).toBeGreaterThan(15)
+  })
+
+  it('different from 32-bit prng', () => {
+    const [v32] = prngNext(42)
+    const [v64] = prngNext64(42)
+    expect(v32).not.toBe(v64)
+  })
+})
+
+// ── prngRange64 ─────────────────────────────────────────────────────────────
+
+describe('prngRange64', () => {
+  it('returns values in [min, max)', () => {
+    Array.from({ length: 1000 }, (_, i) => prngRange64(i, 10, 20)[0])
+      .forEach(v => {
+        expect(v).toBeGreaterThanOrEqual(10)
+        expect(v).toBeLessThan(20)
+      })
+  })
+
+  it('returns min when min >= max', () => {
+    expect(prngRange64(0, 5, 5)[0]).toBe(5)
+    expect(prngRange64(0, 5, 3)[0]).toBe(5)
+  })
+})
+
+// ── prngGaussian64 ──────────────────────────────────────────────────────────
+
+describe('prngGaussian64', () => {
+  it('is finite for many seeds', () => {
+    Array.from({ length: 1000 }, (_, i) => prngGaussian64(i)[0])
+      .forEach(g => expect(Number.isFinite(g)).toBe(true))
+  })
+
+  it('is deterministic', () => {
+    const [a, sa] = prngGaussian64(42)
+    const [b, sb] = prngGaussian64(42)
+    expect(a).toBe(b)
+    expect(sa).toBe(sb)
+  })
+})
+
+// ── memoize1d ───────────────────────────────────────────────────────────────
+
+describe('memoize1d', () => {
+  it('approximates sin', () => {
+    const fastSin = memoize1d(Math.sin, 0, Math.PI, 1000)
+    Array.from({ length: 100 }, (_, i) => i * Math.PI / 100).forEach(x => {
+      expect(Math.abs(fastSin(x) - Math.sin(x))).toBeLessThan(0.01)
+    })
+  })
+
+  it('is deterministic', () => {
+    const f = memoize1d((x: number) => x * x, 0, 10, 100)
+    expect(f(5.0)).toBe(f(5.0))
   })
 })

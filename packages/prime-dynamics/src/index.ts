@@ -333,6 +333,217 @@ export const grayScottStep = (
   return [u + duDt * dt, v + dvDt * dt]
 }
 
+// ── L-systems ────────────────────────────────────────────────────────────────
+
+/** Single L-system production rule: maps a character to its replacement string. */
+export type LRule = { readonly symbol: string; readonly replacement: string }
+
+/**
+ * Apply one L-system generation step. Pure LOAD + COMPUTE + APPEND.
+ *
+ * Each character in `axiom` is replaced by its matching rule's replacement string.
+ * Characters without matching rules are copied unchanged (identity rule).
+ *
+ * Math:
+ *   L-system: G = (V, w, P) where V = alphabet, w = axiom, P = production rules.
+ *   Each generation: sigma(w) = P(c1) ++ P(c2) ++ ... ++ P(cn)
+ *
+ * @param axiom - current string state
+ * @param rules - production rules
+ * @returns next generation string
+ */
+export const lsystemStep = (axiom: string, rules: readonly LRule[]): string =>
+  Array.from(axiom).map(c => {
+    const rule = rules.find(r => r.symbol === c)
+    return rule ? rule.replacement : c
+  }).join('')
+
+/**
+ * Apply n generations of L-system rules. Pure fold over generations.
+ *
+ * Math: sigma^n(w) = sigma(sigma(...sigma(w)...)) applied `generations` times.
+ *
+ * @param axiom       - initial axiom string
+ * @param rules       - production rules
+ * @param generations - number of generations to apply
+ * @returns string after n generations
+ */
+export const lsystemGenerate = (axiom: string, rules: readonly LRule[], generations: number): string =>
+  Array.from({ length: generations }).reduce<string>(
+    (current) => lsystemStep(current, rules),
+    axiom,
+  )
+
+// ── Numerical differentiation ────────────────────────────────────────────────
+
+/**
+ * Numerical derivative via central difference. `f'(x) ≈ (f(x+h) - f(x-h)) / 2h`.
+ *
+ * More accurate than forward difference (O(h²) vs O(h) error).
+ *
+ * @param f - scalar function to differentiate
+ * @param x - point at which to evaluate derivative
+ * @param h - step size
+ * @returns approximate f'(x)
+ *
+ * @example
+ * const d = derivative(x => x * x, 3, 1e-5)
+ * // d ≈ 6 (d/dx(x²) = 2x = 6 at x=3)
+ */
+export const derivative = (
+  f: (x: number) => number,
+  x: number,
+  h: number,
+): number => (f(x + h) - f(x - h)) / (2 * h)
+
+/**
+ * Second derivative via central difference. `f''(x) ≈ (f(x+h) - 2f(x) + f(x-h)) / h²`.
+ *
+ * @param f - scalar function
+ * @param x - point at which to evaluate
+ * @param h - step size
+ * @returns approximate f''(x)
+ *
+ * @example
+ * const d2 = derivative2(x => x * x * x, 2, 1e-4)
+ * // d2 ≈ 12 (d²/dx²(x³) = 6x = 12 at x=2)
+ */
+export const derivative2 = (
+  f: (x: number) => number,
+  x: number,
+  h: number,
+): number => (f(x + h) - 2 * f(x) + f(x - h)) / (h * h)
+
+/**
+ * Numerical gradient of a 2D function via central differences.
+ *
+ * @param f - function of (x, y)
+ * @param x - x coordinate
+ * @param y - y coordinate
+ * @param h - step size
+ * @returns [df/dx, df/dy]
+ *
+ * @example
+ * const [gx, gy] = gradient2d((x, y) => x * x + y * y, 3, 4, 1e-5)
+ * // gx ≈ 6, gy ≈ 8
+ */
+export const gradient2d = (
+  f: (x: number, y: number) => number,
+  x: number,
+  y: number,
+  h: number,
+): [number, number] => {
+  const dx = (f(x + h, y) - f(x - h, y)) / (2 * h)
+  const dy = (f(x, y + h) - f(x, y - h)) / (2 * h)
+  return [dx, dy]
+}
+
+// ── Numerical integration ────────────────────────────────────────────────────
+
+/**
+ * Trapezoidal rule integration of f over [a, b] with n subdivisions.
+ *
+ * `∫f(x)dx ≈ h/2 * (f(a) + 2*f(x₁) + 2*f(x₂) + ... + f(b))`
+ *
+ * @param f - integrand
+ * @param a - lower bound
+ * @param b - upper bound
+ * @param n - number of subdivisions
+ * @returns approximate integral
+ *
+ * @example
+ * const area = integrateTrapezoidal(x => x * x, 0, 1, 1000)
+ * // area ≈ 1/3
+ */
+export const integrateTrapezoidal = (
+  f: (x: number) => number,
+  a: number,
+  b: number,
+  n: number,
+): number => {
+  const h = (b - a) / n
+  const interior = Array.from({ length: n - 1 }).reduce<number>(
+    (sum, _, idx) => sum + f(a + (idx + 1) * h),
+    0,
+  )
+  return h * (f(a) / 2 + interior + f(b) / 2)
+}
+
+/**
+ * Simpson's rule integration of f over [a, b] with n subdivisions (n must be even).
+ *
+ * `∫f(x)dx ≈ h/3 * (f(a) + 4*f(x₁) + 2*f(x₂) + 4*f(x₃) + ... + f(b))`
+ *
+ * O(h⁴) error — much more accurate than trapezoidal for smooth functions.
+ *
+ * @param f - integrand
+ * @param a - lower bound
+ * @param b - upper bound
+ * @param n - number of subdivisions (rounded up to even if odd)
+ * @returns approximate integral
+ *
+ * @example
+ * const area = integrateSimpson(x => x * x, 0, 1, 100)
+ * // area ≈ 1/3
+ */
+export const integrateSimpson = (
+  f: (x: number) => number,
+  a: number,
+  b: number,
+  n: number,
+): number => {
+  const ne = n % 2 === 1 ? n + 1 : n // ensure even
+  const h = (b - a) / ne
+  const sum = Array.from({ length: ne - 1 }).reduce<number>(
+    (acc, _, idx) => {
+      const i = idx + 1
+      const coeff = i % 2 === 0 ? 2 : 4
+      return acc + coeff * f(a + i * h)
+    },
+    0,
+  )
+  return (h / 3) * (f(a) + sum + f(b))
+}
+
+// ── Van der Pol oscillator ───────────────────────────────────────────────────
+
+/**
+ * Van der Pol oscillator step via RK4.
+ *
+ * `x'' - μ(1 - x²)x' + x = 0`
+ *
+ * Relaxation oscillator — self-sustaining oscillations with nonlinear damping.
+ * μ=0 is a simple harmonic oscillator. μ>0 exhibits limit cycle behavior.
+ *
+ * @param x  - current position
+ * @param v  - current velocity
+ * @param mu - nonlinearity parameter
+ * @param dt - time step
+ * @returns [nextX, nextV]
+ *
+ * @example
+ * const [x1, v1] = vanDerPolStep(1, 0, 1, 0.01)
+ */
+export const vanDerPolStep = (
+  x: number,
+  v: number,
+  mu: number,
+  dt: number,
+): [number, number] => {
+  const f = (_t: number, state: [number, number]): [number, number] => {
+    const [sx, sv] = state
+    return [sv, mu * (1 - sx * sx) * sv - sx]
+  }
+  const k1 = f(0, [x, v])
+  const k2 = f(0, [x + 0.5 * dt * k1[0], v + 0.5 * dt * k1[1]])
+  const k3 = f(0, [x + 0.5 * dt * k2[0], v + 0.5 * dt * k2[1]])
+  const k4 = f(0, [x + dt * k3[0], v + dt * k3[1]])
+  return [
+    x + (dt / 6) * (k1[0] + 2 * k2[0] + 2 * k3[0] + k4[0]),
+    v + (dt / 6) * (k1[1] + 2 * k2[1] + 2 * k3[1] + k4[1]),
+  ]
+}
+
 // ── Duffing oscillator ────────────────────────────────────────────────────────
 
 export const duffingStep = (
@@ -357,4 +568,211 @@ export const duffingStep = (
     x0 + (dt / 6) * (k1x + 2 * k2x + 2 * k3x + k4x),
     v0 + (dt / 6) * (k1v + 2 * k2v + 2 * k3v + k4v),
   ]
+}
+
+// ── Adaptive Simpson's quadrature ────────────────────────────────────────────
+
+/**
+ * Adaptive Simpson's quadrature — automatically refines subdivisions
+ * where the integrand varies rapidly.
+ *
+ * O(h^4) per panel. Subdivides until |S_fine - S_coarse| < 15 * tol,
+ * or maxDepth is reached.
+ *
+ * Math: S(a,b) = (b-a)/6 * (f(a) + 4*f(m) + f(b))
+ *
+ * @param f - integrand
+ * @param a - lower bound
+ * @param b - upper bound
+ * @param tol - error tolerance (e.g., 1e-6)
+ * @param maxDepth - maximum recursion depth (e.g., 20)
+ * @returns approximate integral
+ */
+export const integrateAdaptive = (
+  f: (x: number) => number,
+  a: number,
+  b: number,
+  tol: number,
+  maxDepth: number,
+): number => {
+  const simpson = (a: number, b: number): number => {
+    const m = (a + b) / 2
+    return ((b - a) / 6) * (f(a) + 4 * f(m) + f(b))
+  }
+
+  // ADVANCE-EXCEPTION: recursion depth bounded by maxDepth
+  const recurse = (
+    a: number,
+    b: number,
+    tol: number,
+    whole: number,
+    depth: number,
+  ): number => {
+    const m = (a + b) / 2
+    const left = simpson(a, m)
+    const right = simpson(m, b)
+    const refined = left + right
+    if (depth === 0 || Math.abs(refined - whole) < 15 * tol) {
+      return refined + (refined - whole) / 15 // Richardson extrapolation
+    }
+    const halfTol = tol / 2
+    return recurse(a, m, halfTol, left, depth - 1)
+      + recurse(m, b, halfTol, right, depth - 1)
+  }
+
+  const whole = simpson(a, b)
+  return recurse(a, b, tol, whole, maxDepth)
+}
+
+// ── Adaptive RK45 (Dormand-Prince) ODE solver ───────────────────────────────
+
+/**
+ * Dormand-Prince RK45 adaptive ODE solver.
+ *
+ * Automatically adjusts step size to maintain error within tolerance.
+ * Uses two RK evaluations (4th and 5th order) to estimate local error.
+ *
+ * @param state - initial state
+ * @param t0 - start time
+ * @param tEnd - end time
+ * @param dtInitial - initial step size guess
+ * @param tol - error tolerance per step
+ * @param f - ODE right-hand side: dy/dt = f(t, y)
+ * @returns [finalState, finalTime, stepsTaken]
+ */
+export const rk45Adaptive = (
+  state: number,
+  t0: number,
+  tEnd: number,
+  dtInitial: number,
+  tol: number,
+  f: (t: number, y: number) => number,
+): [number, number, number] => {
+  // Dormand-Prince coefficients
+  const a2 = 1 / 5, a3 = 3 / 10, a4 = 4 / 5, a5 = 8 / 9
+  const b21 = 1 / 5
+  const b31 = 3 / 40, b32 = 9 / 40
+  const b41 = 44 / 45, b42 = -56 / 15, b43 = 32 / 9
+  const b51 = 19372 / 6561, b52 = -25360 / 2187, b53 = 64448 / 6561, b54 = -212 / 729
+  const b61 = 9017 / 3168, b62 = -355 / 33, b63 = 46732 / 5247, b64 = 49 / 176, b65 = -5103 / 18656
+
+  // 5th order weights
+  const c1 = 35 / 384, c3 = 500 / 1113, c4 = 125 / 192, c5 = -2187 / 6784, c6 = 11 / 84
+  // 4th order weights
+  const d1 = 5179 / 57600, d3 = 7571 / 16695, d4 = 393 / 640, d5 = -92097 / 339200, d6 = 187 / 2100, d7 = 1 / 40
+
+  // ADVANCE-EXCEPTION: adaptive step loop with bounded iteration
+  let y = state
+  let t = t0
+  let dt = dtInitial
+  let steps = 0
+  const maxSteps = 100_000
+
+  while (t < tEnd && steps < maxSteps) {
+    const dtActual = Math.min(dt, tEnd - t)
+
+    const k1 = f(t, y)
+    const k2 = f(t + a2 * dtActual, y + dtActual * b21 * k1)
+    const k3 = f(t + a3 * dtActual, y + dtActual * (b31 * k1 + b32 * k2))
+    const k4 = f(t + a4 * dtActual, y + dtActual * (b41 * k1 + b42 * k2 + b43 * k3))
+    const k5 = f(t + a5 * dtActual, y + dtActual * (b51 * k1 + b52 * k2 + b53 * k3 + b54 * k4))
+    const k6 = f(t + dtActual, y + dtActual * (b61 * k1 + b62 * k2 + b63 * k3 + b64 * k4 + b65 * k5))
+
+    const y5 = y + dtActual * (c1 * k1 + c3 * k3 + c4 * k4 + c5 * k5 + c6 * k6)
+
+    const k7 = f(t + dtActual, y5)
+    const y4 = y + dtActual * (d1 * k1 + d3 * k3 + d4 * k4 + d5 * k5 + d6 * k6 + d7 * k7)
+
+    const error = Math.abs(y5 - y4)
+
+    if (error <= tol || dtActual <= 1e-10) {
+      y = y5
+      t += dtActual
+      steps += 1
+    }
+
+    if (error > 0) {
+      const factor = 0.9 * Math.pow(tol / error, 0.2)
+      dt = dtActual * Math.max(0.1, Math.min(5.0, factor))
+    }
+  }
+
+  return [y, t, steps]
+}
+
+// ── Newton-Raphson root finding ──────────────────────────────────────────────
+
+/**
+ * Newton-Raphson root finding. Finds x where f(x) ≈ 0.
+ *
+ * Uses numerical derivative (central difference) for the Jacobian.
+ *
+ * @param f - function to find root of
+ * @param x0 - initial guess
+ * @param tol - convergence tolerance
+ * @param maxIter - maximum iterations
+ * @returns [root, iterations]
+ */
+export const newtonRaphson = (
+  f: (x: number) => number,
+  x0: number,
+  tol: number,
+  maxIter: number,
+): [number, number] => {
+  const h = 1e-5
+  // ADVANCE-EXCEPTION: convergence loop with bounded iteration
+  let x = x0
+  for (let i = 0; i < maxIter; i++) {
+    const fx = f(x)
+    if (Math.abs(fx) < tol) {
+      return [x, i]
+    }
+    const dfx = (f(x + h) - f(x - h)) / (2 * h)
+    if (Math.abs(dfx) < 1e-12) {
+      return [x, i]
+    }
+    x -= fx / dfx
+  }
+  return [x, maxIter]
+}
+
+// ── Bisection root finding ───────────────────────────────────────────────────
+
+/**
+ * Bisection root finding. Guaranteed convergence for continuous f with f(a)*f(b) < 0.
+ *
+ * Slower than Newton but always converges. O(log((b-a)/tol)) iterations.
+ *
+ * @param f - function to find root of
+ * @param a - lower bracket
+ * @param b - upper bracket
+ * @param tol - convergence tolerance
+ * @param maxIter - maximum iterations
+ * @returns [root, iterations]
+ */
+export const bisection = (
+  f: (x: number) => number,
+  a: number,
+  b: number,
+  tol: number,
+  maxIter: number,
+): [number, number] => {
+  // ADVANCE-EXCEPTION: convergence loop
+  let lo = a
+  let hi = b
+  let fLo = f(lo)
+  for (let i = 0; i < maxIter; i++) {
+    const mid = (lo + hi) / 2
+    const fMid = f(mid)
+    if (Math.abs(fMid) < tol || (hi - lo) < tol) {
+      return [mid, i]
+    }
+    if (fLo * fMid < 0) {
+      hi = mid
+    } else {
+      lo = mid
+      fLo = fMid
+    }
+  }
+  return [(lo + hi) / 2, maxIter]
 }

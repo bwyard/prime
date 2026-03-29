@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { voronoiNearest2d, voronoiF1F2_2d, lloydRelaxStep2d } from '../index.js'
+import { voronoiNearest2d, voronoiF1F2_2d, lloydRelaxStep2d, delaunay2d, inCircumcircle } from '../index.js'
 
 const EPS = 1e-4
 
@@ -100,6 +100,54 @@ describe('lloydRelaxStep2d', () => {
   })
 })
 
+// ── delaunay2d ───────────────────────────────────────────────────────────────
+
+describe('delaunay2d', () => {
+  it('single triangle', () => {
+    const pts: [number, number][] = [[0, 0], [1, 0], [0.5, 1]]
+    const tris = delaunay2d(pts)
+    expect(tris).toHaveLength(1)
+  })
+
+  it('four points → two triangles', () => {
+    const pts: [number, number][] = [[0, 0], [1, 0], [1, 1], [0, 1]]
+    const tris = delaunay2d(pts)
+    expect(tris).toHaveLength(2)
+  })
+
+  it('empty → empty', () => {
+    expect(delaunay2d([])).toEqual([])
+  })
+
+  it('two points → empty (cannot form triangle)', () => {
+    const pts: [number, number][] = [[0, 0], [1, 0]]
+    expect(delaunay2d(pts)).toEqual([])
+  })
+
+  it('circumcircle property — no point inside any triangle circumcircle', () => {
+    const pts: [number, number][] = [[0, 0], [4, 0], [2, 3], [1, 1], [3, 1]]
+    const tris = delaunay2d(pts)
+    expect(tris.length).toBeGreaterThan(0)
+    for (const [i, j, k] of tris) {
+      const [ax, ay] = pts[i]
+      const [bx, by] = pts[j]
+      const [cx, cy] = pts[k]
+      for (let m = 0; m < pts.length; m++) {
+        if (m === i || m === j || m === k) continue
+        const [px, py] = pts[m]
+        expect(inCircumcircle(px, py, ax, ay, bx, by, cx, cy)).toBe(false)
+      }
+    }
+  })
+
+  it('deterministic', () => {
+    const pts: [number, number][] = [[0, 0], [1, 0], [0.5, 1], [0.5, 0.5]]
+    const a = delaunay2d(pts)
+    const b = delaunay2d(pts)
+    expect(a).toEqual(b)
+  })
+})
+
 // ── Cross-language parity (values verified against Rust prime-voronoi) ────────
 
 describe('cross-language parity', () => {
@@ -122,5 +170,17 @@ describe('cross-language parity', () => {
     const relaxed = lloydRelaxStep2d([[0, 0]], [[1, 0], [1, 1]])
     expect(relaxed[0][0]).toBeCloseTo(1.0, 4)
     expect(relaxed[0][1]).toBeCloseTo(0.5, 4)
+  })
+
+  it('delaunay2d single triangle produces 1 triangle', () => {
+    // Rust: delaunay_2d(&[(0.0, 0.0), (1.0, 0.0), (0.5, 1.0)]) => 1 triangle
+    const tris = delaunay2d([[0, 0], [1, 0], [0.5, 1]])
+    expect(tris).toHaveLength(1)
+  })
+
+  it('delaunay2d four points produces 2 triangles', () => {
+    // Rust: delaunay_2d(&[(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]) => 2 triangles
+    const tris = delaunay2d([[0, 0], [1, 0], [1, 1], [0, 1]])
+    expect(tris).toHaveLength(2)
   })
 })
