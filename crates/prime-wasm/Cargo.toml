@@ -1,10 +1,13 @@
 [package]
-name = "prime-wasm"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-repository.workspace = true
+name        = "prime-wasm"
 description = "WASM bindings for the prime math library"
+version.workspace    = true
+edition.workspace    = true
+license.workspace    = true
+repository.workspace = true
+authors.workspace    = true
+keywords    = ["wasm", "webassembly", "math", "game-dev", "graphics"]
+categories  = ["wasm", "mathematics"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]

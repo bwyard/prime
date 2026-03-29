@@ -5,3 +5,6 @@ version.workspace    = true
 edition.workspace    = true
 license.workspace    = true
 repository.workspace = true
+authors.workspace    = true
+keywords    = ["audio", "render", "dsp", "sample-loop", "functional"]
+categories  = ["mathematics", "multimedia::audio"]
