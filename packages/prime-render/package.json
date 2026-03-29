@@ -1,10 +1,36 @@
 {
   "name": "@prime/prime-render",
-  "version": "0.1.0",
-  "description": "Pure sample-level scan loop — fold a pure step function over N samples",
+  "version": "1.1.0",
+  "description": "Render math utilities — projection, viewport transforms",
   "license": "MIT",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bwyard/prime",
+    "directory": "packages/prime-render"
+  },
+  "keywords": [
+    "prime",
+    "math",
+    "pure-functions",
+    "functional",
+    "typescript",
+    "render"
+  ],
+  "author": "Bree Yard",
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
