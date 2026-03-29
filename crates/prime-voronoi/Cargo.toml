@@ -10,3 +10,10 @@ categories  = ["mathematics", "game-engines"]
 
 [dependencies]
 glam = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "voronoi_bench"
+harness = false

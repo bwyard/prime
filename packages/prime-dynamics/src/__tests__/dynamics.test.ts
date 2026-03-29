@@ -10,6 +10,14 @@ import {
   lotkaVolterraStep,
   sirStep,
   grayScottStep,
+  lsystemStep,
+  lsystemGenerate,
+  derivative,
+  derivative2,
+  gradient2d,
+  integrateTrapezoidal,
+  integrateSimpson,
+  vanDerPolStep,
   LORENZ_SIGMA,
   LORENZ_RHO,
   LORENZ_BETA,
@@ -306,5 +314,193 @@ describe('grayScottStep', () => {
     const [u, v] = grayScottStep(0.5, 0.3, 0.1, 0.1, 0.04, 0.06, 0)
     expect(u).toBeCloseTo(0.5, 5)
     expect(v).toBeCloseTo(0.3, 5)
+  })
+})
+
+// ── lsystemStep / lsystemGenerate ───────────────────────────────────────────
+
+describe('lsystemStep', () => {
+  const ALGAE_RULES = [
+    { symbol: 'A', replacement: 'AB' },
+    { symbol: 'B', replacement: 'A' },
+  ] as const
+
+  it('algae — A->AB, B->A', () => {
+    expect(lsystemStep('A', ALGAE_RULES)).toBe('AB')
+    expect(lsystemStep('AB', ALGAE_RULES)).toBe('ABA')
+    expect(lsystemStep('ABA', ALGAE_RULES)).toBe('ABAAB')
+  })
+
+  it('Koch curve — F->F+F-F-F+F preserves + and -', () => {
+    const rules = [{ symbol: 'F', replacement: 'F+F-F-F+F' }] as const
+    expect(lsystemStep('F', rules)).toBe('F+F-F-F+F')
+  })
+
+  it('identity for unmapped characters', () => {
+    const rules = [{ symbol: 'A', replacement: 'B' }] as const
+    expect(lsystemStep('AXA', rules)).toBe('BXB')
+  })
+
+  it('empty axiom returns empty string', () => {
+    const rules = [{ symbol: 'A', replacement: 'B' }] as const
+    expect(lsystemStep('', rules)).toBe('')
+  })
+
+  it('deterministic', () => {
+    const rules = [{ symbol: 'F', replacement: 'FF' }] as const
+    expect(lsystemStep('F+F', rules)).toBe(lsystemStep('F+F', rules))
+  })
+})
+
+describe('lsystemGenerate', () => {
+  const ALGAE_RULES = [
+    { symbol: 'A', replacement: 'AB' },
+    { symbol: 'B', replacement: 'A' },
+  ] as const
+
+  it('0 generations returns axiom', () => {
+    expect(lsystemGenerate('A', ALGAE_RULES, 0)).toBe('A')
+  })
+
+  it('1 generation matches single step', () => {
+    expect(lsystemGenerate('A', ALGAE_RULES, 1)).toBe('AB')
+  })
+
+  it('5 generations of algae', () => {
+    expect(lsystemGenerate('A', ALGAE_RULES, 5)).toBe('ABAABABAABAAB')
+  })
+
+  it('Fibonacci lengths from algae L-system', () => {
+    const lengths = Array.from({ length: 8 }).reduce<[number[], string]>(
+      ([lens, s]) => {
+        const next = lsystemStep(s, ALGAE_RULES)
+        return [[...lens, next.length], next]
+      },
+      [[1], 'A'],
+    )[0]
+    // Fibonacci: 1, 2, 3, 5, 8, 13, 21, 34
+    expect(lengths.slice(0, 8)).toEqual([1, 2, 3, 5, 8, 13, 21, 34])
+  })
+
+  it('deterministic', () => {
+    const rules = [{ symbol: 'F', replacement: 'FF' }] as const
+    expect(lsystemGenerate('F', rules, 3)).toBe(lsystemGenerate('F', rules, 3))
+  })
+})
+
+// ── derivative ──────────────────────────────────────────────────────────────
+
+describe('derivative', () => {
+  it('d/dx(x²) = 2x = 6 at x=3', () => {
+    const d = derivative(x => x * x, 3, 1e-5)
+    expect(Math.abs(d - 6)).toBeLessThan(1e-3)
+  })
+
+  it('d/dx(sin(x)) = cos(0) = 1 at x=0', () => {
+    const d = derivative(Math.sin, 0, 1e-5)
+    expect(Math.abs(d - 1)).toBeLessThan(1e-3)
+  })
+
+  it('deterministic', () => {
+    expect(derivative(x => x * x, 3, 1e-5)).toBe(derivative(x => x * x, 3, 1e-5))
+  })
+})
+
+// ── derivative2 ─────────────────────────────────────────────────────────────
+
+describe('derivative2', () => {
+  it('d²/dx²(x³) = 6x = 12 at x=2', () => {
+    const d2 = derivative2(x => x * x * x, 2, 1e-4)
+    expect(Math.abs(d2 - 12)).toBeLessThan(0.1)
+  })
+
+  it('deterministic', () => {
+    expect(derivative2(x => x * x, 1, 1e-4)).toBe(derivative2(x => x * x, 1, 1e-4))
+  })
+})
+
+// ── gradient2d ──────────────────────────────────────────────────────────────
+
+describe('gradient2d', () => {
+  it('gradient of x² + y² at (3,4) is (6, 8)', () => {
+    const [gx, gy] = gradient2d((x, y) => x * x + y * y, 3, 4, 1e-5)
+    expect(Math.abs(gx - 6)).toBeLessThan(1e-3)
+    expect(Math.abs(gy - 8)).toBeLessThan(1e-3)
+  })
+
+  it('deterministic', () => {
+    const a = gradient2d((x, y) => x * y, 1, 1, 1e-5)
+    const b = gradient2d((x, y) => x * y, 1, 1, 1e-5)
+    expect(a).toEqual(b)
+  })
+})
+
+// ── integrateTrapezoidal ────────────────────────────────────────────────────
+
+describe('integrateTrapezoidal', () => {
+  it('∫x² dx from 0 to 1 ≈ 1/3', () => {
+    const area = integrateTrapezoidal(x => x * x, 0, 1, 1000)
+    expect(Math.abs(area - 1 / 3)).toBeLessThan(1e-4)
+  })
+
+  it('∫sin(x) dx from 0 to π ≈ 2', () => {
+    const area = integrateTrapezoidal(Math.sin, 0, Math.PI, 1000)
+    expect(Math.abs(area - 2)).toBeLessThan(1e-4)
+  })
+
+  it('deterministic', () => {
+    expect(integrateTrapezoidal(x => x * x, 0, 1, 100)).toBe(
+      integrateTrapezoidal(x => x * x, 0, 1, 100),
+    )
+  })
+})
+
+// ── integrateSimpson ────────────────────────────────────────────────────────
+
+describe('integrateSimpson', () => {
+  it('∫x² dx from 0 to 1 ≈ 1/3 (high accuracy)', () => {
+    const area = integrateSimpson(x => x * x, 0, 1, 100)
+    expect(Math.abs(area - 1 / 3)).toBeLessThan(1e-8)
+  })
+
+  it('more accurate than trapezoidal for same n', () => {
+    const trueVal = 1 / 3
+    const trap = integrateTrapezoidal(x => x * x, 0, 1, 100)
+    const simp = integrateSimpson(x => x * x, 0, 1, 100)
+    expect(Math.abs(simp - trueVal)).toBeLessThan(Math.abs(trap - trueVal))
+  })
+
+  it('deterministic', () => {
+    expect(integrateSimpson(x => x * x, 0, 1, 100)).toBe(
+      integrateSimpson(x => x * x, 0, 1, 100),
+    )
+  })
+})
+
+// ── vanDerPolStep ───────────────────────────────────────────────────────────
+
+describe('vanDerPolStep', () => {
+  it('mu=0 is simple harmonic — energy conserved', () => {
+    const [x, v] = Array.from({ length: 10000 }).reduce<[number, number]>(
+      ([px, pv]) => vanDerPolStep(px, pv, 0, 0.001),
+      [1, 0],
+    )
+    const energy = x * x + v * v
+    expect(Math.abs(energy - 1)).toBeLessThan(0.01)
+  })
+
+  it('mu>0 — limit cycle is bounded', () => {
+    const [x, v] = Array.from({ length: 50000 }).reduce<[number, number]>(
+      ([px, pv]) => vanDerPolStep(px, pv, 1, 0.001),
+      [0.1, 0],
+    )
+    expect(Math.abs(x)).toBeLessThan(3)
+    expect(Math.abs(v)).toBeLessThan(5)
+  })
+
+  it('deterministic', () => {
+    const a = vanDerPolStep(1, 0, 1, 0.01)
+    const b = vanDerPolStep(1, 0, 1, 0.01)
+    expect(a).toEqual(b)
   })
 })
