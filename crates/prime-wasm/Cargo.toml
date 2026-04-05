@@ -15,19 +15,19 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 wasm-bindgen = "0.2"
 glam         = { workspace = true }
-prime-noise    = { path = "../prime-noise" }
-prime-color    = { path = "../prime-color" }
-prime-sdf      = { path = "../prime-sdf" }
-prime-interp   = { path = "../prime-interp" }
-prime-signal   = { path = "../prime-signal" }
-prime-random   = { path = "../prime-random" }
-prime-osc      = { path = "../prime-osc" }
-prime-spatial  = { path = "../prime-spatial" }
-prime-splines  = { path = "../prime-splines" }
-prime-dynamics = { path = "../prime-dynamics" }
-prime-diffusion = { path = "../prime-diffusion" }
-prime-voronoi  = { path = "../prime-voronoi" }
-prime-render   = { path = "../prime-render" }
+prime-noise    = { path = "../prime-noise",    version = "1.1.0" }
+prime-color    = { path = "../prime-color",    version = "1.1.0" }
+prime-sdf      = { path = "../prime-sdf",      version = "1.1.0" }
+prime-interp   = { path = "../prime-interp",   version = "1.1.0" }
+prime-signal   = { path = "../prime-signal",   version = "1.1.0" }
+prime-random   = { path = "../prime-random",   version = "1.1.0" }
+prime-osc      = { path = "../prime-osc",      version = "1.1.0" }
+prime-spatial  = { path = "../prime-spatial",  version = "1.1.0" }
+prime-splines  = { path = "../prime-splines",  version = "1.1.0" }
+prime-dynamics = { path = "../prime-dynamics", version = "1.1.0" }
+prime-diffusion = { path = "../prime-diffusion", version = "1.1.0" }
+prime-voronoi  = { path = "../prime-voronoi",  version = "1.1.0" }
+prime-render   = { path = "../prime-render",   version = "1.1.0" }
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3"
