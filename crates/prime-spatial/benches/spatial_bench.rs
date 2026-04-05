@@ -1,6 +1,6 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use std::hint::black_box;
-use prime_spatial::{poisson_rect_partitioned, scatter_cull_rect, scatter_cull_voronoi};
+use prime_spatial::{poisson_rect_partitioned, scatter_cull_rect, scatter_cull_voronoi, scatter_cull_voronoi_recursive};
 use prime_spatial::research::poisson_disk_wei;
 
 // Research benchmark: Approach C — rectangular partitions
@@ -71,5 +71,33 @@ fn bench_approach_d(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_approach_c, bench_approach_d, bench_wei);
+fn bench_approach_d_recursive(c: &mut Criterion) {
+    let mut group = c.benchmark_group("approach_d_recursive");
+
+    // K=10, levels=1 → 10 leaf cells; levels=2 → 100 leaf cells
+    // total_target=200 → ~20 per leaf (levels=1) or ~2 per leaf (levels=2)
+    // Kept small so benchmark completes quickly and results are comparable
+    for (domain, levels, total) in [
+        (100.0f32, 1usize, 200usize),
+        (100.0,    2,      200),
+        (200.0,    1,      500),
+        (200.0,    2,      500),
+        (500.0,    1,      1000),
+        (500.0,    2,      1000),
+    ] {
+        let label = format!("{domain}x{domain}_L{levels}");
+        group.bench_function(format!("scatter_cull_recursive/{label}"), |b| {
+            b.iter(|| {
+                scatter_cull_voronoi_recursive(
+                    black_box(domain), black_box(domain),
+                    5.0, 10, levels, 3, total, 1.5, 42,
+                )
+            })
+        });
+    }
+
+    group.finish();
+}
+
+criterion_group!(benches, bench_approach_c, bench_approach_d, bench_approach_d_recursive, bench_wei);
 criterion_main!(benches);

@@ -874,6 +874,169 @@ pub fn scatter_cull_voronoi(
         .collect()
 }
 
+// ── Approach D-R: Voronoi K₁₀ Recursive Scatter-Cull ────────────────────────
+//
+// Same goal as scatter_cull_voronoi (Approach D) but the partition is built
+// recursively: each Voronoi cell is itself split into K sub-cells, down to
+// `levels` depth.
+//
+// k^levels leaf cells are produced. total_target points are spread across all
+// leaf cells: target_per_leaf = total_target / k^levels.
+//
+// The scatter is done once, up front, in the full domain. Candidates are
+// partitioned level by level. Culling happens only at the leaves.
+//
+// Sub-level sites are generated within the bounding box of the candidates in
+// each cell; Lloyd-relaxation uses those same candidates as samples.
+
+fn voronoi_recursive_inner(
+    candidates: Vec<(f32, f32)>,
+    k: usize,
+    levels_remaining: usize,
+    lloyd_iters: usize,
+    min_dist: f32,
+    full_width: f32,
+    full_height: f32,
+    seed: u32,
+) -> Vec<Vec<(f32, f32)>> {
+    // Leaf: cull and return
+    if levels_remaining == 0 || candidates.len() < 2 {
+        let culled = cull_to_min_dist(candidates, 0.0, 0.0, full_width, full_height, min_dist);
+        return vec![culled];
+    }
+
+    // Bounding box of this cell's candidates
+    let (min_x, min_y, max_x, max_y) = candidates.iter().fold(
+        (f32::MAX, f32::MAX, f32::MIN, f32::MIN),
+        |(mnx, mny, mxx, mxy), &(x, y)| {
+            (mnx.min(x), mny.min(y), mxx.max(x), mxy.max(y))
+        },
+    );
+    let cell_w = (max_x - min_x).max(1e-6);
+    let cell_h = (max_y - min_y).max(1e-6);
+
+    // Generate K sub-sites within this cell's bounding box
+    let raw_sites = voronoi_sites_seeded(k, min_x, min_y, cell_w, cell_h, seed);
+
+    // Lloyd-relax using the candidates themselves as samples.
+    // Candidates are approximately uniform within the cell, so this gives
+    // reasonable centroidal placement without a separate sample grid.
+    let sites = lloyd_relax_n(&raw_sites, &candidates, lloyd_iters);
+
+    // Partition candidates by nearest sub-site
+    let sub_cells = voronoi_partition(&sites, &candidates);
+
+    // Recurse into each sub-cell with a derived seed
+    sub_cells
+        .into_iter()
+        .enumerate()
+        .flat_map(|(i, sub_candidates)| {
+            let sub_seed = seed
+                .wrapping_mul(1_664_525u32)
+                .wrapping_add(i as u32);
+            voronoi_recursive_inner(
+                sub_candidates,
+                k,
+                levels_remaining - 1,
+                lloyd_iters,
+                min_dist,
+                full_width,
+                full_height,
+                sub_seed,
+            )
+        })
+        .collect()
+}
+
+/// Recursive scatter-cull Poisson disk sampling over K^levels Voronoi leaf cells
+/// (Approach D-R).
+///
+/// Produces `total_target` points across `k^levels` leaf cells. The scatter
+/// phase runs once in the full domain; partitioning recurses down `levels`
+/// levels; culling applies only at the leaves.
+///
+/// This is a separate option from `scatter_cull_voronoi` (single-level D).
+/// Both are kept for benchmarking — neither replaces the other until results
+/// are in.
+///
+/// # Math
+///
+/// **Leaf count:**
+/// $$\text{leaves} = k^{\text{levels}}$$
+///
+/// **Per-leaf target:**
+/// $$\text{target\_per\_leaf} = \left\lceil \frac{\text{total\_target}}{\text{leaves}} \right\rceil$$
+///
+/// **Total candidates scattered:**
+/// $$N = \text{total\_target} \cdot \text{overage\_ratio}$$
+/// (distributed among leaves by partition, not pre-allocated per leaf)
+///
+/// **Recursive partition at each level:**
+/// - Compute bounding box of this cell's candidates
+/// - Generate K sub-sites within the bounding box
+/// - Lloyd-relax sub-sites using candidates as samples
+/// - Partition candidates by nearest sub-site
+/// - Recurse at depth − 1
+///
+/// At leaf: apply min-dist cull.
+///
+/// # Arguments
+/// * `width`, `height`   — domain dimensions (must be > 0)
+/// * `min_dist`          — minimum allowed distance between any two accepted points
+/// * `k`                 — Voronoi sites per level (10 → K₁₀)
+/// * `levels`            — recursion depth (leaf count = k^levels)
+/// * `lloyd_iters`       — Lloyd steps per level (0 = raw random sites)
+/// * `total_target`      — desired total accepted points across all leaf cells
+/// * `overage_ratio`     — scatter multiplier (>1.0; 1.5 recommended)
+/// * `seed`              — deterministic seed
+///
+/// # Returns
+/// `Vec<Vec<(f32, f32)>>` of length up to `k^levels` (some leaves may be empty
+/// if the domain is small relative to min-dist). Points within each leaf satisfy
+/// min-dist. Cross-leaf min-dist is NOT guaranteed.
+///
+/// # Example
+/// ```rust
+/// # use prime_spatial::scatter_cull_voronoi_recursive;
+/// // K=10, levels=2 → 100 leaf cells, 1000 total target points
+/// let cells = scatter_cull_voronoi_recursive(100.0, 100.0, 5.0, 10, 2, 3, 200, 1.5, 42);
+/// assert!(cells.len() > 0);
+/// assert!(cells.iter().map(|c| c.len()).sum::<usize>() > 0);
+/// ```
+pub fn scatter_cull_voronoi_recursive(
+    width: f32,
+    height: f32,
+    min_dist: f32,
+    k: usize,
+    levels: usize,
+    lloyd_iters: usize,
+    total_target: usize,
+    overage_ratio: f32,
+    seed: u32,
+) -> Vec<Vec<(f32, f32)>> {
+    if width <= 0.0 || height <= 0.0 || min_dist <= 0.0
+        || overage_ratio <= 0.0 || k == 0 || levels == 0 || total_target == 0
+    {
+        return Vec::new();
+    }
+
+    // Scatter all candidates in the full domain up front.
+    // overage covers expected cull losses; candidates are distributed to leaves by partition.
+    let total_candidates = (total_target as f32 * overage_ratio) as usize;
+    let scatter_seed = seed.wrapping_mul(1_664_525u32).wrapping_add(1_013_904_223u32);
+
+    let candidates: Vec<(f32, f32)> = (0..total_candidates)
+        .scan(scatter_seed, |s, _| {
+            let (xf, s1) = prng_next(*s);
+            let (yf, s2) = prng_next(s1);
+            *s = s2;
+            Some((xf * width, yf * height))
+        })
+        .collect();
+
+    voronoi_recursive_inner(candidates, k, levels, lloyd_iters, min_dist, width, height, seed)
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -1468,6 +1631,57 @@ mod tests {
     fn scatter_cull_voronoi_zero_lloyd_iters() {
         // Should work fine with no relaxation — sites are raw random
         let cells = scatter_cull_voronoi(100.0, 100.0, 5.0, 10, 0, 20, 1.5, 42);
+        assert_eq!(cells.len(), 10);
+    }
+
+    // ── scatter_cull_voronoi_recursive ──────────────────────────────────────
+
+    #[test]
+    fn scatter_cull_voronoi_recursive_basic() {
+        // K=10, levels=2 → up to 100 leaf cells
+        let cells = scatter_cull_voronoi_recursive(100.0, 100.0, 5.0, 10, 2, 3, 200, 1.5, 42);
+        assert!(!cells.is_empty());
+        assert!(cells.iter().map(|c| c.len()).sum::<usize>() > 0);
+    }
+
+    #[test]
+    fn scatter_cull_voronoi_recursive_invalid_inputs_return_empty() {
+        assert!(scatter_cull_voronoi_recursive(0.0, 100.0, 5.0, 10, 2, 3, 200, 1.5, 42).is_empty());
+        assert!(scatter_cull_voronoi_recursive(100.0, 100.0, 5.0, 0, 2, 3, 200, 1.5, 42).is_empty());
+        assert!(scatter_cull_voronoi_recursive(100.0, 100.0, 5.0, 10, 0, 3, 200, 1.5, 42).is_empty());
+        assert!(scatter_cull_voronoi_recursive(100.0, 100.0, 5.0, 10, 2, 3, 0, 1.5, 42).is_empty());
+    }
+
+    #[test]
+    fn scatter_cull_voronoi_recursive_min_dist_holds() {
+        let cells = scatter_cull_voronoi_recursive(100.0, 100.0, 5.0, 10, 2, 3, 200, 1.5, 42);
+        let min_dist = 5.0_f32;
+        for cell in &cells {
+            for i in 0..cell.len() {
+                for j in (i + 1)..cell.len() {
+                    let dx = cell[i].0 - cell[j].0;
+                    let dy = cell[i].1 - cell[j].1;
+                    let dist = (dx * dx + dy * dy).sqrt();
+                    assert!(
+                        dist >= min_dist - 1e-4,
+                        "min-dist violated: {dist:.4} < {min_dist}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn scatter_cull_voronoi_recursive_deterministic() {
+        let a = scatter_cull_voronoi_recursive(100.0, 100.0, 5.0, 10, 2, 3, 200, 1.5, 42);
+        let b = scatter_cull_voronoi_recursive(100.0, 100.0, 5.0, 10, 2, 3, 200, 1.5, 42);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn scatter_cull_voronoi_recursive_levels_1_matches_structure_of_d() {
+        // levels=1 should produce exactly K leaf cells (same structure as single-level D)
+        let cells = scatter_cull_voronoi_recursive(100.0, 100.0, 5.0, 10, 1, 3, 200, 1.5, 42);
         assert_eq!(cells.len(), 10);
     }
 
