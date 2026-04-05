@@ -504,6 +504,231 @@ pub fn frustum_cull_aabb(
     })
 }
 
+// ── Approach C: Rectangular Partitions ───────────────────────────────────────
+//
+// Two strategies over the same geometry, kept side by side for benchmarking:
+//
+//   poisson_rect_partitioned  — Strategy A: run Bridson inside each partition
+//   scatter_cull_rect         — Strategy B: scatter-cull inside each partition
+//
+// Both return Vec<Vec<(f32, f32)>> — one inner Vec per partition.
+// Points within each partition satisfy min_dist from each other.
+// Seam handling differs per strategy (see each fn).
+
+use prime_random::{poisson_disk, prng_next};
+
+// Shared: build a spatial acceptance grid and cull a point set down to min-dist validity.
+// Used by scatter_cull_rect's cull phase. Returns the surviving points.
+// ADVANCE-EXCEPTION: cull loop terminates when all candidates are processed — bounded.
+fn cull_to_min_dist(
+    candidates: Vec<(f32, f32)>,
+    x_start: f32,
+    y_start: f32,
+    width: f32,
+    height: f32,
+    min_dist: f32,
+) -> Vec<(f32, f32)> {
+    let cell_size   = min_dist / 2.0_f32.sqrt();
+    let cols        = (width  / cell_size).ceil() as usize + 1;
+    let rows        = (height / cell_size).ceil() as usize + 1;
+    let min_dist_sq = min_dist * min_dist;
+
+    let mut grid:     Vec<Option<usize>> = vec![None; cols * rows];
+    let mut accepted: Vec<(f32, f32)>    = Vec::new();
+
+    for (wx, wy) in candidates {
+        // Translate to local partition coordinates for grid indexing
+        let lx = wx - x_start;
+        let ly = wy - y_start;
+
+        if lx < 0.0 || lx >= width || ly < 0.0 || ly >= height {
+            continue;
+        }
+
+        let gcx = (lx / cell_size) as usize;
+        let gcy = (ly / cell_size) as usize;
+
+        let too_close = (gcy.saturating_sub(2)..(gcy + 3).min(rows))
+            .flat_map(|gy| (gcx.saturating_sub(2)..(gcx + 3).min(cols))
+                .map(move |gx| (gx, gy)))
+            .filter_map(|(gx, gy)| grid[gy * cols + gx])
+            .any(|pi| {
+                let (qx, qy) = accepted[pi];
+                let dx = wx - qx;
+                let dy = wy - qy;
+                dx * dx + dy * dy < min_dist_sq
+            });
+
+        if !too_close {
+            let idx      = accepted.len();
+            grid[gcy * cols + gcx] = Some(idx);
+            accepted.push((wx, wy));
+        }
+    }
+
+    accepted
+}
+
+/// Approach C — Strategy A: Rectangular partitions with Bridson per cell.
+///
+/// # Math
+///
+/// Divides the domain into `partition_cols × partition_rows` equal rectangles.
+/// Runs `poisson_disk` independently inside each cell with a seam inset of
+/// $\frac{d_{min}}{2}$ on shared edges, so no cross-partition distance checks
+/// are needed. Per-partition seed:
+///
+/// $$s_{r,c} = s_0 \cdot 6364136223846793005 + (r \cdot P_c + c)$$
+///
+/// # Arguments
+/// * `width`, `height`       — domain dimensions (must be > 0)
+/// * `min_dist`              — minimum distance between any two points
+/// * `max_attempts`          — Bridson candidate attempts per active point (30 standard)
+/// * `partition_cols`        — number of columns in the rectangular grid
+/// * `partition_rows`        — number of rows in the rectangular grid
+/// * `seed`                  — deterministic seed
+///
+/// # Returns
+/// `Vec<Vec<(f32, f32)>>` — one inner Vec per partition (row-major order).
+/// Points are in world coordinates. Empty Vec on invalid inputs.
+///
+/// # Edge cases
+/// Returns empty if any dimension or `min_dist` is ≤ 0, or if partition count is 0.
+///
+/// # Example
+/// ```rust
+/// # use prime_spatial::poisson_rect_partitioned;
+/// let partitions = poisson_rect_partitioned(100.0, 100.0, 5.0, 30, 4, 4, 42);
+/// assert_eq!(partitions.len(), 16);
+/// assert!(partitions.iter().all(|p| !p.is_empty()));
+/// ```
+pub fn poisson_rect_partitioned(
+    width: f32,
+    height: f32,
+    min_dist: f32,
+    max_attempts: usize,
+    partition_cols: usize,
+    partition_rows: usize,
+    seed: u32,
+) -> Vec<Vec<(f32, f32)>> {
+    if width <= 0.0 || height <= 0.0 || min_dist <= 0.0
+        || partition_cols == 0 || partition_rows == 0
+    {
+        return Vec::new();
+    }
+
+    let cell_w = width  / partition_cols as f32;
+    let cell_h = height / partition_rows as f32;
+    let inset  = min_dist / 2.0;
+
+    (0..partition_rows).flat_map(|row| {
+        (0..partition_cols).map(move |col| {
+            // Per-partition seed — wrapping_mul mix avoids correlation
+            let p_seed = (seed as u64)
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add((row * partition_cols + col) as u64)
+                as u32;
+
+            let x_start = col as f32 * cell_w + inset;
+            let y_start = row as f32 * cell_h + inset;
+            let p_width  = (cell_w - inset * 2.0).max(0.0);
+            let p_height = (cell_h - inset * 2.0).max(0.0);
+
+            if p_width <= min_dist || p_height <= min_dist {
+                return Vec::new();
+            }
+
+            // Run Bridson in local coordinates, translate to world
+            poisson_disk(p_width, p_height, min_dist, max_attempts, p_seed)
+                .into_iter()
+                .map(|(x, y)| (x + x_start, y + y_start))
+                .collect()
+        })
+    })
+    .collect()
+}
+
+/// Approach C — Strategy B: Rectangular partitions with scatter-cull per cell.
+///
+/// # Math
+///
+/// Divides the domain into `partition_cols × partition_rows` equal rectangles.
+/// Each cell receives a pure random drop of $N = \lfloor target \cdot r \rfloor$ points
+/// where $r$ is the overage ratio. A cull pass then removes points violating $d_{min}$.
+/// No seam inset — boundary conflicts are resolved from surplus during the cull pass.
+///
+/// Per-partition seed uses the same mixing strategy as `poisson_rect_partitioned`.
+///
+/// # Arguments
+/// * `width`, `height`          — domain dimensions (must be > 0)
+/// * `min_dist`                 — minimum distance between any two points
+/// * `partition_cols`           — number of columns
+/// * `partition_rows`           — number of rows
+/// * `target_per_partition`     — desired survivors per partition
+/// * `overage_ratio`            — drop multiplier, e.g. 1.5 for 50% overage
+/// * `seed`                     — deterministic seed
+///
+/// # Returns
+/// `Vec<Vec<(f32, f32)>>` — one inner Vec per partition (row-major order).
+/// Points are in world coordinates. Empty Vec on invalid inputs.
+///
+/// # Edge cases
+/// Returns empty if any dimension, `min_dist`, or `overage_ratio` is ≤ 0,
+/// or if partition count or target is 0.
+///
+/// # Example
+/// ```rust
+/// # use prime_spatial::scatter_cull_rect;
+/// let partitions = scatter_cull_rect(100.0, 100.0, 5.0, 4, 4, 250, 1.5, 42);
+/// assert_eq!(partitions.len(), 16);
+/// ```
+pub fn scatter_cull_rect(
+    width: f32,
+    height: f32,
+    min_dist: f32,
+    partition_cols: usize,
+    partition_rows: usize,
+    target_per_partition: usize,
+    overage_ratio: f32,
+    seed: u32,
+) -> Vec<Vec<(f32, f32)>> {
+    if width <= 0.0 || height <= 0.0 || min_dist <= 0.0 || overage_ratio <= 0.0
+        || partition_cols == 0 || partition_rows == 0 || target_per_partition == 0
+    {
+        return Vec::new();
+    }
+
+    let cell_w   = width  / partition_cols as f32;
+    let cell_h   = height / partition_rows as f32;
+    let drop_n   = (target_per_partition as f32 * overage_ratio) as usize;
+
+    (0..partition_rows).flat_map(|row| {
+        (0..partition_cols).map(move |col| {
+            let p_seed = (seed as u64)
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add((row * partition_cols + col) as u64)
+                as u32;
+
+            let x_start = col as f32 * cell_w;
+            let y_start = row as f32 * cell_h;
+
+            // Phase 1 — Scatter: pure random drop, no distance checking
+            // ADVANCE-EXCEPTION: fixed iteration count, no data-dependent termination
+            let mut s = p_seed;
+            let candidates: Vec<(f32, f32)> = (0..drop_n).map(|_| {
+                let (xf, s1) = prng_next(s);
+                let (yf, s2) = prng_next(s1);
+                s = s2;
+                (x_start + xf * cell_w, y_start + yf * cell_h)
+            }).collect();
+
+            // Phase 2 — Cull: apply min-dist constraint as post-pass
+            cull_to_min_dist(candidates, x_start, y_start, cell_w, cell_h, min_dist)
+        })
+    })
+    .collect()
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]

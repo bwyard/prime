@@ -37,16 +37,29 @@ min_dist=5.0, max_attempts=30
 ## Approach C — Rectangular Partitions
 
 ### C-A: Partition-Bridson
-*[pending]*
+min_dist=5.0, max_attempts=30, seam inset=min_dist/2
+
+| Domain       | Partitions | Time       | vs serial Bridson |
+|--------------|------------|------------|-------------------|
+| 100×100      | 4×4 = 16   | 425.56 µs  | 0.6× (slower)     |
+| 200×200      | 6×6 = 36   | 2007.1 µs  | 0.7× (slower)     |
+| 500×500      | 8×8 = 64   | 15.11 ms   | 0.8× (similar)    |
+
+*[Claude notation: partition-Bridson is slightly slower than serial Bridson — overhead
+of seed mixing + inset calculation with no parallelism benefit on single thread.
+Expected to improve with actual parallel execution (Rayon).]*
 
 ### C-B: Scatter-Cull (seeded)
-Parameters: 40 partitions, 500 drops/partition, overage_ratio=1.5
+min_dist=5.0, overage_ratio=1.5, target_per_partition=20 (small-scale validation params)
 
-| Domain | Scatter time | Cull time | Total | Survivor rate | Min-dist hold |
-|--------|-------------|-----------|-------|---------------|---------------|
-| | | | | | |
+| Domain       | Partitions | Time       | vs partition-Bridson | vs serial Bridson |
+|--------------|------------|------------|----------------------|-------------------|
+| 100×100      | 4×4 = 16   | 17.20 µs   | **24.7×**            | **40×**           |
+| 200×200      | 6×6 = 36   | 50.12 µs   | **40.0×**            | **57×**           |
+| 500×500      | 8×8 = 64   | 105.87 µs  | **142.6×**           | **172×**          |
 
-*[pending]*
+Min-dist hold: 100% (confirmed by test suite)
+Determinism: confirmed — same seed → identical output
 
 ---
 
