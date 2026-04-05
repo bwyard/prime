@@ -5,6 +5,7 @@ version.workspace    = true
 edition.workspace    = true
 license.workspace    = true
 repository.workspace = true
+readme     = "README.md"
 authors.workspace    = true
 keywords    = ["diffusion", "reaction-diffusion", "cellular-automata", "simulation", "procedural"]
 categories  = ["mathematics", "game-engines"]
