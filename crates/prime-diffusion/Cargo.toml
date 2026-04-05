@@ -1,9 +1,14 @@
 [package]
-name = "prime-diffusion"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
+name        = "prime-diffusion"
+description = "Diffusion systems — Gray-Scott reaction-diffusion, cellular automata"
+version.workspace    = true
+edition.workspace    = true
+license.workspace    = true
 repository.workspace = true
+readme     = "README.md"
+authors.workspace    = true
+keywords    = ["diffusion", "reaction-diffusion", "cellular-automata", "simulation", "procedural"]
+categories  = ["mathematics", "game-engines"]
 
 [dependencies]
-prime-random = { path = "../prime-random" }
+prime-random = { path = "../prime-random", version = "1.1.0" }

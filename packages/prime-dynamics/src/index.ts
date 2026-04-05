@@ -546,6 +546,25 @@ export const vanDerPolStep = (
 
 // ── Duffing oscillator ────────────────────────────────────────────────────────
 
+/**
+ * Advance the Duffing oscillator state by one RK4 step.
+ *
+ * Models a damped, driven nonlinear spring. State is `[position, velocity]`.
+ *
+ * Math:
+ *   dx/dt = v
+ *   dv/dt = -δv - αx - βx³ + γcos(ωt)
+ *
+ * @param state - `[x, v]` position and velocity
+ * @param t     - current time (seconds; used for driving term)
+ * @param p     - Duffing parameters (see `DuffingParams`)
+ * @param dt    - time step
+ * @returns new `[x, v]` state
+ *
+ * @example
+ * const p = { delta: 0.3, alpha: -1, beta: 1, gamma: 0.37, omega: 1.2 }
+ * const [x1, v1] = duffingStep([0, 0], 0, p, 0.01)
+ */
 export const duffingStep = (
   state: [number, number],
   t: number,

@@ -29,7 +29,7 @@ pub fn box_3d(p: Vec3, center: Vec3, half_extents: Vec3) -> f32 {
 /// Signed distance from point `p` to a 3D capsule.
 ///
 /// # Math
-/// Project p onto segment AB, clamp t in [0,1], measure to nearest point minus radius.
+/// Project p onto segment AB, clamp t in \[0,1\], measure to nearest point minus radius.
 pub fn capsule_3d(p: Vec3, a: Vec3, b: Vec3, radius: f32) -> f32 {
     let pa = p - a;
     let ba = b - a;

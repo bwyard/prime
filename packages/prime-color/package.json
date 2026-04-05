@@ -1,10 +1,36 @@
 {
   "name": "@prime/prime-color",
-  "version": "0.1.0",
-  "description": "Color math utilities (pure TypeScript)",
+  "version": "1.1.0",
+  "description": "Color math — Oklab, sRGB, HSL/HSV, palette utilities",
   "license": "MIT",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bwyard/prime",
+    "directory": "packages/prime-color"
+  },
+  "keywords": [
+    "prime",
+    "math",
+    "pure-functions",
+    "functional",
+    "typescript",
+    "color"
+  ],
+  "author": "Bree Yard",
   "scripts": {
     "build": "tsc",
     "test": "vitest run",

@@ -1,10 +1,36 @@
 {
   "name": "@prime/prime-noise",
-  "version": "0.1.0",
-  "description": "TypeScript bindings for prime-noise (WASM wrapper)",
+  "version": "1.1.0",
+  "description": "Noise functions — Perlin, Simplex, FBM, Worley, curl noise",
   "license": "MIT",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bwyard/prime",
+    "directory": "packages/prime-noise"
+  },
+  "keywords": [
+    "prime",
+    "math",
+    "pure-functions",
+    "functional",
+    "typescript",
+    "noise"
+  ],
+  "author": "Bree Yard",
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
