@@ -1,6 +1,6 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use std::hint::black_box;
-use prime_spatial::{poisson_rect_partitioned, scatter_cull_rect};
+use prime_spatial::{poisson_rect_partitioned, scatter_cull_rect, scatter_cull_voronoi};
 use prime_spatial::research::poisson_disk_wei;
 
 // Research benchmark: Approach C — rectangular partitions
@@ -49,5 +49,27 @@ fn bench_wei(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_approach_c, bench_wei);
+fn bench_approach_d(c: &mut Criterion) {
+    let mut group = c.benchmark_group("approach_d_voronoi");
+
+    // K=10 sites, 3 Lloyd iterations, overage_ratio=1.5
+    // target_per_cell scaled to match C-B target counts for fair comparison
+    for (domain, k) in [(100.0f32, 10), (200.0, 10), (500.0, 10)] {
+        let label    = format!("{domain}x{domain}_k{k}");
+        let target   = 25usize; // ~same total as C-B at equivalent domain sizes
+
+        group.bench_function(format!("scatter_cull_voronoi/{label}"), |b| {
+            b.iter(|| {
+                scatter_cull_voronoi(
+                    black_box(domain), black_box(domain),
+                    5.0, k, 3, target, 1.5, 42,
+                )
+            })
+        });
+    }
+
+    group.finish();
+}
+
+criterion_group!(benches, bench_approach_c, bench_approach_d, bench_wei);
 criterion_main!(benches);

@@ -93,16 +93,26 @@ Parameters: shear angle TBD, variable cell widths seeded
 ## Approach D — Voronoi K₁₀
 
 ### D-A: Partition-Bridson
-*[pending]*
+*[skipped — structurally identical to C-A; adds no new geometric information. Voronoi cells
+use same Bridson-per-cell logic as rectangular cells, performance difference is geometry only.
+C-A times remain the reference for partition-Bridson across approaches.]*
 
 ### D-B: Scatter-Cull (seeded)
-Parameters: K=10, lloyd_iterations=3, overage_ratio=TBD
+Parameters: K=10 sites, lloyd_iterations=3, overage_ratio=1.5, target_per_cell=25
 
-| Domain | Recursion depth | Scatter time | Cull time | Total | Survivor rate |
-|--------|----------------|-------------|-----------|-------|---------------|
-| | | | | | |
+| Domain  | Time      | vs C-B rect   | vs serial Bridson |
+|---------|-----------|---------------|-------------------|
+| 100×100 | 25.2 µs   | 0.7× (slower) | **27×**           |
+| 200×200 | 34.9 µs   | **1.4×**      | **82×**           |
+| 500×500 | 84.7 µs   | **1.25×**     | **215×**          |
 
-*[pending]*
+Min-dist hold: 100% (confirmed by test suite, intra-cell only)
+Determinism: confirmed — same seed → identical output
+
+*[Claude notation: D-B slower than C-B at small domains (Lloyd relaxation overhead — 3 passes
+over a grid of ~160 samples). At 200×200 and 500×500 D-B beats C-B — K=10 cells vs 36–64 rectangular
+cells means less total cull work per cell. Lloyd convergence distributes points more uniformly
+across cells than random rectangular partitioning, reducing cull rejection rate.]*
 
 ---
 

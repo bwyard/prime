@@ -136,7 +136,7 @@ Blue noise spectral analysis (radial power spectrum) — deferred until basic re
 1. ~~Bridson rewrite~~ ✅ done
 2. ~~Approach C — rectangular scatter-cull~~ ✅ done (equal-size, axis-aligned)
 3. ~~Wei 2008 baseline~~ ✅ done (single-threaded, in `research.rs`)
-4. Approach D — Voronoi K₁₀ scatter-cull (irregular cells + recursion)
+4. ~~Approach D — Voronoi K₁₀ scatter-cull~~ ✅ done (single-level, K=10, 3 Lloyd iters)
 5. Approach F — sheared variable-size scatter-cull (non-orthogonal, non-equal)
 6. Approach E — half-heart scatter-cull (most complex, implement last)
 
@@ -175,7 +175,15 @@ than serial Bridson. Will improve with Rayon `par_iter`.
 172× faster than serial Bridson at 500×500. Min-dist guarantee 100%. Deterministic.
 
 ### Approach D — Voronoi K₁₀ Scatter-Cull
-*[pending]*
+
+See `ACCURACY.md` for full data.
+
+**D-B (Scatter-Cull, K=10, 3 Lloyd iters):** slower than C-B at 100×100 (Lloyd overhead),
+faster at 200×200 and 500×500. 215× faster than serial Bridson at 500×500.
+
+Unexpected finding: D-B outperforms C-B at scale despite the Lloyd relaxation cost.
+Hypothesis: K=10 coarse Voronoi cells → less total cull work per cell at larger domains;
+Lloyd convergence produces more uniform per-cell point density than rectangular partitioning.
 
 ### Approach E — Half-Heart Scatter-Cull
 *[pending]*

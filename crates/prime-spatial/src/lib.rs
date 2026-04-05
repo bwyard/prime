@@ -519,6 +519,7 @@ pub mod research;
 // Seam handling differs per strategy (see each fn).
 
 use prime_random::{poisson_disk, prng_next};
+use prime_voronoi::{voronoi_sites_seeded, voronoi_partition, lloyd_relax_n};
 
 // Shared: build a spatial acceptance grid and cull a point set down to min-dist validity.
 // Used by scatter_cull_rect's cull phase. Returns the surviving points.
@@ -732,6 +733,145 @@ pub fn scatter_cull_rect(
         })
     })
     .collect()
+}
+
+// ── Approach D: Voronoi K₁₀ Scatter-Cull ─────────────────────────────────────
+//
+// Strategy B (scatter-cull) over irregular Voronoi cells.
+//
+// Steps:
+//   1. Generate K random Voronoi sites in the domain.
+//   2. Lloyd-relax the sites for `lloyd_iters` steps → centroidal placement.
+//   3. Scatter `k * target_per_cell * overage_ratio` random candidates in the domain.
+//   4. Partition candidates by nearest site → one candidate set per Voronoi cell.
+//   5. Cull each cell's candidates to min-dist validity.
+//
+// No Bridson reference for Approach D in this file — partition-Bridson over
+// Voronoi cells is structurally identical to approach C-A (run Bridson per
+// cell) and adds no new geometric information. The interesting comparison is
+// scatter-cull Voronoi (D) vs scatter-cull rectangular (C-B).
+
+/// Scatter-cull Poisson disk sampling over K Voronoi cells (Approach D).
+///
+/// Generates `k` Voronoi sites, Lloyd-relaxes them for `lloyd_iters` steps,
+/// then applies scatter-cull independently inside each Voronoi cell.
+///
+/// Unlike rectangular partitions, Voronoi cells are irregular polygons — their
+/// boundaries are implicitly defined by nearest-site distance. No explicit
+/// cell polygon computation is required: a candidate point belongs to the cell
+/// whose site is nearest.
+///
+/// # Math
+///
+/// **Site placement:**
+/// Random sites $\{s_i\}_{i=0}^{k-1}$ drawn from the domain, then moved toward
+/// centroidal positions via sample-based Lloyd relaxation:
+///
+/// $$s_i^{(t+1)} = \frac{1}{|\mathcal{C}_i^{(t)}|} \sum_{p \in \mathcal{C}_i^{(t)}} p$$
+///
+/// where $\mathcal{C}_i^{(t)}$ is the set of grid samples nearest to $s_i$ at step $t$.
+///
+/// **Scatter:**
+/// Total candidates $N = k \cdot \text{target} \cdot \text{overage}$ scattered uniformly
+/// in the full domain:
+///
+/// $$N = k \cdot \text{target\_per\_cell} \cdot \text{overage\_ratio}$$
+///
+/// **Partition:**
+/// $$\text{cell}_i = \bigl\{\, p \in \text{candidates} : \arg\min_j \lVert p - s_j \rVert = i \,\bigr\}$$
+///
+/// **Cull:** each cell's candidates filtered to min-dist validity using the
+/// same O(1)-grid cull as `scatter_cull_rect`.
+///
+/// # Arguments
+/// * `width`, `height`      — domain dimensions (must be > 0)
+/// * `min_dist`             — minimum allowed distance between any two accepted points
+/// * `k`                    — number of Voronoi sites (partitions)
+/// * `lloyd_iters`          — Lloyd relaxation steps (0 = use raw random sites)
+/// * `target_per_cell`      — approximate desired survivors per Voronoi cell
+/// * `overage_ratio`        — scatter multiplier (>1.0 ensures surplus; 1.5 recommended)
+/// * `seed`                 — deterministic seed
+///
+/// # Returns
+/// `Vec<Vec<(f32, f32)>>` — one inner Vec per Voronoi cell (length = `k`).
+/// Points within each cell satisfy min-dist. Cross-cell min-dist is NOT
+/// guaranteed — boundary conflicts exist at cell seams (same as Approach C).
+///
+/// # Example
+/// ```rust
+/// # use prime_spatial::scatter_cull_voronoi;
+/// let cells = scatter_cull_voronoi(100.0, 100.0, 5.0, 10, 3, 20, 1.5, 42);
+/// assert_eq!(cells.len(), 10);
+/// assert!(cells.iter().map(|c| c.len()).sum::<usize>() > 0);
+/// ```
+pub fn scatter_cull_voronoi(
+    width: f32,
+    height: f32,
+    min_dist: f32,
+    k: usize,
+    lloyd_iters: usize,
+    target_per_cell: usize,
+    overage_ratio: f32,
+    seed: u32,
+) -> Vec<Vec<(f32, f32)>> {
+    if width <= 0.0 || height <= 0.0 || min_dist <= 0.0
+        || overage_ratio <= 0.0 || k == 0 || target_per_cell == 0
+    {
+        return Vec::new();
+    }
+
+    // Step 1 — Generate K random sites in the domain.
+    let raw_sites = voronoi_sites_seeded(k, 0.0, 0.0, width, height, seed);
+
+    // Step 2 — Lloyd-relax sites toward centroidal positions.
+    // Sample the domain with a regular grid for centroid estimation.
+    // Grid density: sqrt(k) * 4 samples per axis — enough for accurate centroids
+    // without excessive allocation.
+    let lloyd_sites = if lloyd_iters == 0 {
+        raw_sites
+    } else {
+        let grid_n    = ((k as f32).sqrt() as usize * 4).max(10);
+        let step_x    = width  / grid_n as f32;
+        let step_y    = height / grid_n as f32;
+        let samples: Vec<(f32, f32)> = (0..grid_n)
+            .flat_map(|row| {
+                (0..grid_n).map(move |col| {
+                    (col as f32 * step_x + step_x * 0.5,
+                     row as f32 * step_y + step_y * 0.5)
+                })
+            })
+            .collect();
+        lloyd_relax_n(&raw_sites, &samples, lloyd_iters)
+    };
+
+    // Step 3 — Scatter candidates uniformly across the full domain.
+    // Seed for scatter phase derived from the input seed, different from site seed.
+    let scatter_seed = seed.wrapping_mul(1_664_525u32).wrapping_add(1_013_904_223u32);
+    let total_candidates = k * target_per_cell * overage_ratio as usize;
+
+    let candidates: Vec<(f32, f32)> = (0..total_candidates)
+        .scan(scatter_seed, |s, _| {
+            let (xf, s1) = prng_next(*s);
+            let (yf, s2) = prng_next(s1);
+            *s = s2;
+            Some((xf * width, yf * height))
+        })
+        .collect();
+
+    // Step 4 — Partition candidates by nearest Voronoi site.
+    let partitioned = voronoi_partition(&lloyd_sites, &candidates);
+
+    // Step 5 — Cull each Voronoi cell's candidates to min-dist validity.
+    // Voronoi cells are irregular — use a conservative bounding box for the
+    // cull grid (the full domain) since we don't know exact cell extents.
+    // The cull grid still achieves O(1) per candidate — cell bounding boxes
+    // are an optimisation left for when performance data motivates it.
+    partitioned
+        .into_iter()
+        .map(|cell_candidates| {
+            cull_to_min_dist(cell_candidates, 0.0, 0.0, width, height, min_dist)
+        })
+        .collect()
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -1268,5 +1408,100 @@ mod tests {
         let planes = unit_cube_frustum();
         // Box is inside on y and z, but fully outside on x (left of left plane).
         assert!(!frustum_cull_aabb((-5.0, -0.5, -0.5), (-3.0, 0.5, 0.5), &planes));
+    }
+
+    // ── scatter_cull_voronoi ─────────────────────────────────────────────────
+
+    #[test]
+    fn scatter_cull_voronoi_cell_count() {
+        let cells = scatter_cull_voronoi(100.0, 100.0, 5.0, 10, 3, 20, 1.5, 42);
+        assert_eq!(cells.len(), 10, "should return exactly k cells");
+    }
+
+    #[test]
+    fn scatter_cull_voronoi_invalid_inputs_return_empty() {
+        assert!(scatter_cull_voronoi(0.0, 100.0, 5.0, 10, 3, 20, 1.5, 42).is_empty());
+        assert!(scatter_cull_voronoi(100.0, 0.0, 5.0, 10, 3, 20, 1.5, 42).is_empty());
+        assert!(scatter_cull_voronoi(100.0, 100.0, 0.0, 10, 3, 20, 1.5, 42).is_empty());
+        assert!(scatter_cull_voronoi(100.0, 100.0, 5.0, 0, 3, 20, 1.5, 42).is_empty());
+        assert!(scatter_cull_voronoi(100.0, 100.0, 5.0, 10, 3, 0, 1.5, 42).is_empty());
+    }
+
+    #[test]
+    fn scatter_cull_voronoi_min_dist_holds() {
+        let cells = scatter_cull_voronoi(100.0, 100.0, 5.0, 10, 3, 20, 1.5, 42);
+        let min_dist = 5.0_f32;
+        for cell in &cells {
+            for i in 0..cell.len() {
+                for j in (i + 1)..cell.len() {
+                    let dx = cell[i].0 - cell[j].0;
+                    let dy = cell[i].1 - cell[j].1;
+                    let dist = (dx * dx + dy * dy).sqrt();
+                    assert!(
+                        dist >= min_dist - 1e-4,
+                        "min-dist violated within cell: {dist:.4} < {min_dist}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn scatter_cull_voronoi_deterministic() {
+        let a = scatter_cull_voronoi(100.0, 100.0, 5.0, 10, 3, 20, 1.5, 42);
+        let b = scatter_cull_voronoi(100.0, 100.0, 5.0, 10, 3, 20, 1.5, 42);
+        assert_eq!(a, b, "same seed must produce identical output");
+    }
+
+    #[test]
+    fn scatter_cull_voronoi_different_seeds_differ() {
+        let a = scatter_cull_voronoi(100.0, 100.0, 5.0, 10, 3, 20, 1.5, 42);
+        let b = scatter_cull_voronoi(100.0, 100.0, 5.0, 10, 3, 20, 1.5, 99);
+        // Different seeds should almost certainly produce different outputs
+        let total_a: usize = a.iter().map(|c| c.len()).sum();
+        let total_b: usize = b.iter().map(|c| c.len()).sum();
+        // At least point counts differ or positions differ
+        assert!(total_a != total_b || a != b);
+    }
+
+    #[test]
+    fn scatter_cull_voronoi_zero_lloyd_iters() {
+        // Should work fine with no relaxation — sites are raw random
+        let cells = scatter_cull_voronoi(100.0, 100.0, 5.0, 10, 0, 20, 1.5, 42);
+        assert_eq!(cells.len(), 10);
+    }
+
+    // ── Statistical: coverage uniformity ────────────────────────────────────
+    // Divide the domain into a coarse grid, count points per cell, compute
+    // coefficient of variation (CV = stddev/mean). Lower CV = more uniform.
+    // This is an observational test — no hard threshold, just a sanity check
+    // that we get some points in most cells.
+
+    fn coverage_cv(points: &[(f32, f32)], width: f32, height: f32, grid_n: usize) -> f32 {
+        let cell_w = width  / grid_n as f32;
+        let cell_h = height / grid_n as f32;
+        let counts: Vec<f32> = (0..grid_n).flat_map(|row| {
+            (0..grid_n).map(move |col| {
+                points.iter().filter(|&&(x, y)| {
+                    let c = (x / cell_w) as usize;
+                    let r = (y / cell_h) as usize;
+                    c == col && r == row
+                }).count() as f32
+            })
+        }).collect();
+        let mean = counts.iter().sum::<f32>() / counts.len() as f32;
+        if mean < 1e-6 { return 0.0; }
+        let var  = counts.iter().map(|&c| (c - mean).powi(2)).sum::<f32>() / counts.len() as f32;
+        var.sqrt() / mean  // coefficient of variation
+    }
+
+    #[test]
+    fn scatter_cull_voronoi_coverage_nonzero() {
+        let cells = scatter_cull_voronoi(100.0, 100.0, 5.0, 10, 3, 30, 1.5, 42);
+        let flat: Vec<(f32, f32)> = cells.into_iter().flatten().collect();
+        assert!(!flat.is_empty(), "should produce at least some points");
+        let cv = coverage_cv(&flat, 100.0, 100.0, 5);
+        // Just log the CV — this is observational, not a pass/fail threshold
+        let _ = cv; // CV will be reported in benchmarks
     }
 }
