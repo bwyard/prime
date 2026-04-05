@@ -68,9 +68,10 @@ alone contributes to any performance or quality difference.
 **Strategy 2 — Scatter-Cull:** mass-drop then cull inside each partition. The hypothesis.
 
 Three geometries, both strategies each:
-- Approach C — rectangular partitions
+- Approach C — rectangular partitions (equal-size, axis-aligned)
 - Approach D — Voronoi K₁₀ (recursive)
 - Approach E — half-heart Bézier
+- Approach F — sheared variable-size partitions (straight edges, non-orthogonal)
 
 Benchmarked against:
 - Serial Bridson (baseline — rewrite already done)
@@ -89,6 +90,8 @@ Benchmarked against:
 | Approach E shift transform | Deferred | Bree: "point at (4,4) on a grid then moving diagonally to something like (-5,10), just a straight diagonal — play with the shift later, use a formula to calculate what's best" |
 | Approach D survivor rate target | Observational | Bree: "purely observational right now" — measure and log, no target |
 | `bridson_parallel/src/` | Doesn't exist | Referenced in handoff v2 but was never created. What we have been working on is effectively it. Work goes in `prime-spatial`. |
+| Approach F shear angle | Deferred | Use half-cell-width offset per row (brick pattern) as first candidate, then sweep angles observationally |
+| Approach F variable-size strategy | Deferred | Options: (a) seeded random weights normalised to domain, (b) explicit width/height arrays, (c) size drawn from a distribution |
 
 ---
 
@@ -128,12 +131,14 @@ Blue noise spectral analysis (radial power spectrum) — deferred until basic re
 
 ---
 
-## Implementation Order (from handoff v2)
+## Implementation Order (from handoff v2, updated 2026-04-05)
 
 1. ~~Bridson rewrite~~ ✅ done
-2. Approach C — rectangular scatter-cull (simplest, validates the pattern end to end)
-3. Approach D — Voronoi K₁₀ scatter-cull (irregular cells + recursion)
-4. Approach E — half-heart scatter-cull (most complex, implement last)
+2. ~~Approach C — rectangular scatter-cull~~ ✅ done (equal-size, axis-aligned)
+3. ~~Wei 2008 baseline~~ ✅ done (single-threaded, in `research.rs`)
+4. Approach D — Voronoi K₁₀ scatter-cull (irregular cells + recursion)
+5. Approach F — sheared variable-size scatter-cull (non-orthogonal, non-equal)
+6. Approach E — half-heart scatter-cull (most complex, implement last)
 
 Wire Criterion benchmarks after each approach before moving to the next.
 
@@ -160,7 +165,14 @@ with point count. Both implementations coexist — `poisson_disk_2d` preserved f
   added `poisson_disk_invalid_inputs_return_empty`
 
 ### Approach C — Rectangular Scatter-Cull
-*[pending]*
+
+See `ACCURACY.md` for full data.
+
+**C-A (Partition-Bridson, reference):** single-threaded overhead makes it slightly slower
+than serial Bridson. Will improve with Rayon `par_iter`.
+
+**C-B (Scatter-Cull):** 24–143× faster than partition-Bridson single-threaded.
+172× faster than serial Bridson at 500×500. Min-dist guarantee 100%. Deterministic.
 
 ### Approach D — Voronoi K₁₀ Scatter-Cull
 *[pending]*
@@ -168,8 +180,53 @@ with point count. Both implementations coexist — `poisson_disk_2d` preserved f
 ### Approach E — Half-Heart Scatter-Cull
 *[pending]*
 
+### Approach F — Sheared Variable-Size Scatter-Cull
+*[planned — see design below]*
+
 ### Wei 2008 Baseline
-*[pending — implement before drawing conclusions from scatter-cull comparison]*
+
+See `ACCURACY.md` for full data.
+
+Single-threaded Wei is 2.4–7.5× **slower** than serial Bridson. Phase overhead and convergence
+loop dominate without actual parallel execution. Wei's performance case requires Rayon `par_iter`
+on the inner tile loops — expected to scale near-linearly with core count up to tile count.
+
+---
+
+---
+
+## Approach F — Sheared Variable-Size Partitions
+
+*(Design session 2026-04-05. Bree: "still straight lines but not 90 degree angles" and "non-equal sized partitions".)*
+
+**Motivation:** Approach C uses equal-size axis-aligned cells. The regular orthogonal grid produces
+repeating seam artifacts at the same x and y coordinates across all rows/columns. Two proposed changes:
+
+**F-1: Non-equal cell sizes.** Cell widths and heights are drawn from a seeded distribution
+rather than computed as `domain / partition_count`. Each row gets a different column width profile.
+This breaks the vertical seam alignment. Sizes must sum to the domain dimension exactly.
+
+**F-2: Shear (non-orthogonal edges).** Cells are parallelograms rather than rectangles. Row $r$
+has its origin shifted by $r \cdot s$ in the x direction, where $s$ is a shear parameter.
+
+$$x_{\text{corner}} = \text{col} \cdot w_{\text{col}} + \text{row} \cdot s$$
+
+A candidate point $(p_x, p_y)$ belongs to the sheared cell if:
+
+$$\text{col} = \left\lfloor \frac{p_x - \frac{p_y}{h_{\text{row}}} \cdot s}{w_{\text{col}}} \right\rfloor$$
+
+The scatter phase generates points in the parallelogram unit basis:
+given $u, v \in [0,1]$:
+$$x = x_{\text{corner}} + u \cdot w + v \cdot s, \quad y = y_{\text{corner}} + v \cdot h$$
+
+This is a linear transformation of the unit square — the Jacobian is 1 (area preserving), so
+point density per unit area is unchanged from the axis-aligned case.
+
+**Combined effect:** non-equal sizes + shear eliminate both the periodic column seams (unequal widths)
+and the horizontal seam alignment (shear offsets rows). Predicted result: more uniform blue-noise
+character at partition boundaries.
+
+**F current status:** planned, not yet implemented. Implement after D is complete.
 
 ---
 

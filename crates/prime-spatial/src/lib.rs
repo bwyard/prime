@@ -504,6 +504,9 @@ pub fn frustum_cull_aabb(
     })
 }
 
+// ── Research module — comparison baselines not for production use ─────────────
+pub mod research;
+
 // ── Approach C: Rectangular Partitions ───────────────────────────────────────
 //
 // Two strategies over the same geometry, kept side by side for benchmarking:
@@ -712,15 +715,17 @@ pub fn scatter_cull_rect(
             let x_start = col as f32 * cell_w;
             let y_start = row as f32 * cell_h;
 
-            // Phase 1 — Scatter: pure random drop, no distance checking
-            // ADVANCE-EXCEPTION: fixed iteration count, no data-dependent termination
-            let mut s = p_seed;
-            let candidates: Vec<(f32, f32)> = (0..drop_n).map(|_| {
-                let (xf, s1) = prng_next(s);
-                let (yf, s2) = prng_next(s1);
-                s = s2;
-                (x_start + xf * cell_w, y_start + yf * cell_h)
-            }).collect();
+            // Phase 1 — Scatter: pure random drop, no distance checking.
+            // scan threads PRNG state forward — the canonical pure pattern for
+            // generating a sequence of seeded values.
+            let candidates: Vec<(f32, f32)> = (0..drop_n)
+                .scan(p_seed, |s, _| {
+                    let (xf, s1) = prng_next(*s);
+                    let (yf, s2) = prng_next(s1);
+                    *s = s2;
+                    Some((x_start + xf * cell_w, y_start + yf * cell_h))
+                })
+                .collect();
 
             // Phase 2 — Cull: apply min-dist constraint as post-pass
             cull_to_min_dist(candidates, x_start, y_start, cell_w, cell_h, min_dist)

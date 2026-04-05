@@ -30,14 +30,25 @@ min_dist=5.0, max_attempts=30
 | 500×500 | 157.52 ms |
 
 ### Wei 2008 Parallel
-*[pending]*
+min_dist=5.0, max_attempts=30 (single-threaded — phase structure only, no `par_iter`)
+
+| Domain  | Time      | vs serial Bridson (mutation) |
+|---------|-----------|------------------------------|
+| 100×100 | 1.64 ms   | 2.4× slower                  |
+| 200×200 | 7.38 ms   | 2.6× slower                  |
+| 500×500 | 137 ms    | 7.5× slower                  |
+
+*[Claude notation: Wei single-threaded is slower than serial Bridson. Expected — the 4-phase
+checkerboard overhead plus convergence loop (multiple passes) outweighs Bridson's sequential grid.
+Wei's advantage is only realised with actual parallel tile execution (Rayon `par_iter`).
+On a multicore machine Wei should scale ~linearly with tile count up to core count.]*
 
 ---
 
 ## Approach C — Rectangular Partitions
 
 ### C-A: Partition-Bridson
-min_dist=5.0, max_attempts=30, seam inset=min_dist/2
+min_dist=5.0, max_attempts=30, seam inset=min_dist/2, equal-size axis-aligned cells
 
 | Domain       | Partitions | Time       | vs serial Bridson |
 |--------------|------------|------------|-------------------|
@@ -50,7 +61,7 @@ of seed mixing + inset calculation with no parallelism benefit on single thread.
 Expected to improve with actual parallel execution (Rayon).]*
 
 ### C-B: Scatter-Cull (seeded)
-min_dist=5.0, overage_ratio=1.5, target_per_partition=20 (small-scale validation params)
+min_dist=5.0, overage_ratio=1.5, target_per_partition=20 (small-scale validation params), equal-size axis-aligned cells
 
 | Domain       | Partitions | Time       | vs partition-Bridson | vs serial Bridson |
 |--------------|------------|------------|----------------------|-------------------|
@@ -60,6 +71,22 @@ min_dist=5.0, overage_ratio=1.5, target_per_partition=20 (small-scale validation
 
 Min-dist hold: 100% (confirmed by test suite)
 Determinism: confirmed — same seed → identical output
+
+---
+
+## Approach F — Sheared Variable-Size Partitions
+
+### F-A: Partition-Bridson
+*[pending]*
+
+### F-B: Scatter-Cull (seeded)
+Parameters: shear angle TBD, variable cell widths seeded
+
+| Domain | Partitions | Time | vs C-B | vs serial Bridson |
+|--------|------------|------|--------|-------------------|
+| | | | | |
+
+*[pending]*
 
 ---
 

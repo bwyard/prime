@@ -1,6 +1,7 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use std::hint::black_box;
 use prime_spatial::{poisson_rect_partitioned, scatter_cull_rect};
+use prime_spatial::research::poisson_disk_wei;
 
 // Research benchmark: Approach C — rectangular partitions
 // Strategy A (partition-Bridson) vs Strategy B (scatter-cull) vs serial Bridson baseline
@@ -38,5 +39,15 @@ fn bench_approach_c(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_approach_c);
+fn bench_wei(c: &mut Criterion) {
+    let mut group = c.benchmark_group("wei_2008");
+    for domain in [100.0f32, 200.0, 500.0] {
+        group.bench_function(format!("{domain}x{domain}"), |b| {
+            b.iter(|| poisson_disk_wei(black_box(domain), black_box(domain), 5.0, 30, 42))
+        });
+    }
+    group.finish();
+}
+
+criterion_group!(benches, bench_approach_c, bench_wei);
 criterion_main!(benches);
