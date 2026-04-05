@@ -25,7 +25,7 @@ use std::f32::consts::PI;
 /// # Arguments
 /// * `a` - Start value (returned when t = 0.0)
 /// * `b` - End value (returned when t = 1.0)
-/// * `t` - Interpolation factor. Not clamped — extrapolates outside [0,1].
+/// * `t` - Interpolation factor. Not clamped — extrapolates outside \[0,1\].
 ///
 /// # Example
 /// ```rust

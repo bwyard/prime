@@ -68,7 +68,7 @@ pub fn rounded_box(p: Vec2, center: Vec2, half_extents: Vec2, radius: f32) -> f3
 /// Signed distance from point `p` to a 2D capsule (stadium shape).
 ///
 /// # Math
-/// Project p onto line segment AB, clamp t in [0,1], measure distance to
+/// Project p onto line segment AB, clamp t in \[0,1\], measure distance to
 /// nearest point minus radius.
 ///
 /// # Arguments
