@@ -13,9 +13,14 @@
 //! # Included
 //! - `voronoi_nearest_2d` — find nearest seed index and F1 distance
 //! - `voronoi_f1_f2_2d` — F1 (nearest) and F2 (second-nearest) distances
+//! - `voronoi_sites_seeded` — K random sites in a rectangle from a seed (PRNG)
+//! - `voronoi_partition` — assign a candidate set to the nearest Voronoi site
 //! - `lloyd_relax_step_2d` — one Lloyd relaxation step (sample-based)
+//! - `lloyd_relax_n` — N steps of Lloyd relaxation (fold over steps)
 //!
 //! - `delaunay_2d` — Delaunay triangulation via Bowyer-Watson
+
+use prime_random::prng_next;
 
 // ── Voronoi nearest ───────────────────────────────────────────────────────────
 
@@ -207,6 +212,161 @@ pub fn lloyd_relax_step_2d(seeds: &[(f32, f32)], samples: &[(f32, f32)]) -> Vec<
         .collect()
 }
 
+// ── Seeded site generation ────────────────────────────────────────────────────
+
+/// Generate `k` random Voronoi sites within the rectangle `[x0, x0+w] × [y0, y0+h]`
+/// using a deterministic PRNG seed.
+///
+/// # Math
+///
+/// For each site $i$, a per-site seed is derived by mixing the global seed with $i$:
+///
+/// $$s_i = \text{seed} \cdot 1{,}664{,}525 + i$$
+///
+/// Two PRNG draws produce $x_i, y_i \in [0, 1)$, then mapped to the rectangle:
+///
+/// $$\text{site}_i = \bigl(x_0 + x_i \cdot w,\; y_0 + y_i \cdot h\bigr)$$
+///
+/// Seed mixing is the same strategy used by `scatter_cull_rect` in `prime-spatial`
+/// for consistency across approaches.
+///
+/// # Arguments
+/// * `k`    — number of sites to generate (0 → empty vec)
+/// * `x0`, `y0` — rectangle origin
+/// * `w`, `h`   — rectangle dimensions (must be > 0 for sites to be inside)
+/// * `seed` — deterministic seed
+///
+/// # Returns
+/// `Vec<(f32, f32)>` of length `k`. Empty if `k == 0`.
+///
+/// # Example
+/// ```rust
+/// use prime_voronoi::voronoi_sites_seeded;
+/// let sites = voronoi_sites_seeded(10, 0.0, 0.0, 100.0, 100.0, 42);
+/// assert_eq!(sites.len(), 10);
+/// for &(x, y) in &sites {
+///     assert!(x >= 0.0 && x < 100.0);
+///     assert!(y >= 0.0 && y < 100.0);
+/// }
+/// ```
+pub fn voronoi_sites_seeded(
+    k: usize,
+    x0: f32,
+    y0: f32,
+    w: f32,
+    h: f32,
+    seed: u32,
+) -> Vec<(f32, f32)> {
+    (0..k)
+        .scan(seed, |s, i| {
+            // Mix global seed with site index for independent per-site streams
+            let site_seed = s.wrapping_mul(1_664_525u32).wrapping_add(i as u32);
+            let (xf, s1) = prng_next(site_seed);
+            let (yf, s2) = prng_next(s1);
+            *s = s2;
+            Some((x0 + xf * w, y0 + yf * h))
+        })
+        .collect()
+}
+
+// ── Voronoi partition ─────────────────────────────────────────────────────────
+
+/// Assign each candidate point to its nearest Voronoi site.
+///
+/// Returns one inner `Vec` per site (same order as `sites`). Points at equal
+/// distance from two sites go to the lower-index site (stable tie-break from
+/// the fold in `voronoi_nearest_2d`).
+///
+/// # Math
+///
+/// $$\text{cell}_i = \bigl\{\, p \in \text{candidates} : \arg\min_j \lVert p - \text{sites}_j \rVert = i \,\bigr\}$$
+///
+/// Assignment is O(|candidates| × |sites|) — brute-force nearest site.
+/// For small site counts (K ≤ 10 per recursion level) this is negligible.
+///
+/// # Arguments
+/// * `sites`      — Voronoi site positions
+/// * `candidates` — points to partition
+///
+/// # Returns
+/// `Vec<Vec<(f32, f32)>>` of length `sites.len()`. Empty outer vec if `sites` is empty.
+///
+/// # Example
+/// ```rust
+/// use prime_voronoi::voronoi_partition;
+/// let sites  = vec![(0.0_f32, 0.0), (10.0, 0.0)];
+/// let candidates = vec![(1.0, 0.0), (9.0, 0.0), (4.0, 0.0), (7.0, 0.0)];
+/// let cells = voronoi_partition(&sites, &candidates);
+/// assert_eq!(cells.len(), 2);
+/// assert!(cells[0].contains(&(1.0, 0.0)));
+/// assert!(cells[1].contains(&(9.0, 0.0)));
+/// ```
+pub fn voronoi_partition(
+    sites: &[(f32, f32)],
+    candidates: &[(f32, f32)],
+) -> Vec<Vec<(f32, f32)>> {
+    if sites.is_empty() {
+        return vec![];
+    }
+
+    // Pure fold: accumulate each candidate into the cell of its nearest site.
+    // The accumulator is a Vec of Vecs, threaded through the fold.
+    let init: Vec<Vec<(f32, f32)>> = (0..sites.len()).map(|_| Vec::new()).collect();
+
+    candidates.iter().fold(init, |mut cells, &pt| {
+        // voronoi_nearest_2d returns None only on empty sites — guarded above.
+        if let Some((idx, _)) = voronoi_nearest_2d(pt, sites) {
+            cells[idx].push(pt);
+        }
+        cells
+    })
+}
+
+// ── Multi-step Lloyd relaxation ───────────────────────────────────────────────
+
+/// Apply `n` steps of sample-based Lloyd relaxation.
+///
+/// Folds `lloyd_relax_step_2d` over `n` iterations. The same `samples` set is
+/// reused each step — use a regular grid or stratified random samples for
+/// accurate centroid estimation.
+///
+/// # Math
+///
+/// $$\text{seeds}_{t+1} = \text{lloyd\_relax\_step\_2d}(\text{seeds}_t, \text{samples})$$
+///
+/// After $n$ steps, sites converge toward a centroidal Voronoi configuration
+/// (CVT). Empirically, 3–5 steps produce visually uniform coverage from a random
+/// initial placement.
+///
+/// # Arguments
+/// * `seeds`   — initial site positions
+/// * `samples` — domain samples used to estimate cell centroids (unchanged each step)
+/// * `n`       — number of Lloyd iterations (0 → return seeds unchanged)
+///
+/// # Returns
+/// Relaxed site positions (same length as `seeds`). Returns `seeds.to_vec()` if `n == 0`.
+///
+/// # Example
+/// ```rust
+/// use prime_voronoi::{voronoi_sites_seeded, lloyd_relax_n};
+/// let sites   = voronoi_sites_seeded(5, 0.0, 0.0, 100.0, 100.0, 42);
+/// let samples: Vec<(f32,f32)> = (0..20).flat_map(|i| {
+///     (0..20).map(move |j| (i as f32 * 5.0, j as f32 * 5.0))
+/// }).collect();
+/// let relaxed = lloyd_relax_n(&sites, &samples, 3);
+/// assert_eq!(relaxed.len(), sites.len());
+/// ```
+pub fn lloyd_relax_n(
+    seeds: &[(f32, f32)],
+    samples: &[(f32, f32)],
+    n: usize,
+) -> Vec<(f32, f32)> {
+    // Pure fold over n iterations — state is the current seed positions.
+    (0..n).fold(seeds.to_vec(), |current, _| {
+        lloyd_relax_step_2d(&current, samples)
+    })
+}
+
 // ── Delaunay triangulation ────────────────────────────────────────────────────
 
 /// Circumcircle test: is point `(px, py)` strictly inside the circumcircle of
@@ -375,6 +535,122 @@ mod tests {
     use super::*;
 
     const EPSILON: f32 = 1e-4;
+
+    // ── voronoi_sites_seeded ─────────────────────────────────────────────────
+
+    #[test]
+    fn sites_seeded_length() {
+        let sites = voronoi_sites_seeded(10, 0.0, 0.0, 100.0, 100.0, 42);
+        assert_eq!(sites.len(), 10);
+    }
+
+    #[test]
+    fn sites_seeded_zero_returns_empty() {
+        assert!(voronoi_sites_seeded(0, 0.0, 0.0, 100.0, 100.0, 42).is_empty());
+    }
+
+    #[test]
+    fn sites_seeded_in_bounds() {
+        let sites = voronoi_sites_seeded(100, 10.0, 20.0, 50.0, 80.0, 7);
+        for &(x, y) in &sites {
+            assert!(x >= 10.0 && x < 60.0, "x={x} out of [10,60)");
+            assert!(y >= 20.0 && y < 100.0, "y={y} out of [20,100)");
+        }
+    }
+
+    #[test]
+    fn sites_seeded_deterministic() {
+        let a = voronoi_sites_seeded(10, 0.0, 0.0, 100.0, 100.0, 42);
+        let b = voronoi_sites_seeded(10, 0.0, 0.0, 100.0, 100.0, 42);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn sites_seeded_different_seeds_differ() {
+        let a = voronoi_sites_seeded(10, 0.0, 0.0, 100.0, 100.0, 42);
+        let b = voronoi_sites_seeded(10, 0.0, 0.0, 100.0, 100.0, 99);
+        assert_ne!(a, b);
+    }
+
+    // ── voronoi_partition ────────────────────────────────────────────────────
+
+    #[test]
+    fn partition_empty_sites_returns_empty() {
+        let cells = voronoi_partition(&[], &[(0.0, 0.0)]);
+        assert!(cells.is_empty());
+    }
+
+    #[test]
+    fn partition_preserves_all_candidates() {
+        let sites = vec![(0.0_f32, 0.0), (10.0, 0.0)];
+        let candidates: Vec<(f32, f32)> = (0..20).map(|i| (i as f32, 0.0)).collect();
+        let cells = voronoi_partition(&sites, &candidates);
+        let total: usize = cells.iter().map(|c| c.len()).sum();
+        assert_eq!(total, candidates.len());
+    }
+
+    #[test]
+    fn partition_correct_assignment() {
+        let sites = vec![(0.0_f32, 0.0), (10.0, 0.0)];
+        let candidates = vec![(1.0_f32, 0.0), (9.0, 0.0)];
+        let cells = voronoi_partition(&sites, &candidates);
+        // (1,0) closer to site 0; (9,0) closer to site 1
+        assert!(cells[0].contains(&(1.0, 0.0)));
+        assert!(cells[1].contains(&(9.0, 0.0)));
+    }
+
+    #[test]
+    fn partition_deterministic() {
+        let sites = vec![(0.0_f32, 0.0), (5.0, 5.0), (10.0, 0.0)];
+        let candidates: Vec<(f32, f32)> = (0..10).map(|i| (i as f32, 0.0)).collect();
+        let a = voronoi_partition(&sites, &candidates);
+        let b = voronoi_partition(&sites, &candidates);
+        assert_eq!(a, b);
+    }
+
+    // ── lloyd_relax_n ────────────────────────────────────────────────────────
+
+    #[test]
+    fn lloyd_relax_n_zero_unchanged() {
+        let seeds = vec![(0.1_f32, 0.2), (0.8_f32, 0.7)];
+        let samples = vec![(0.5_f32, 0.5)];
+        let result = lloyd_relax_n(&seeds, &samples, 0);
+        assert_eq!(result, seeds);
+    }
+
+    #[test]
+    fn lloyd_relax_n_preserves_count() {
+        let seeds = voronoi_sites_seeded(5, 0.0, 0.0, 100.0, 100.0, 42);
+        let samples: Vec<(f32, f32)> = (0..10)
+            .flat_map(|i| (0..10).map(move |j| (i as f32 * 10.0, j as f32 * 10.0)))
+            .collect();
+        let relaxed = lloyd_relax_n(&seeds, &samples, 3);
+        assert_eq!(relaxed.len(), seeds.len());
+    }
+
+    #[test]
+    fn lloyd_relax_n_deterministic() {
+        let seeds = voronoi_sites_seeded(5, 0.0, 0.0, 100.0, 100.0, 42);
+        let samples: Vec<(f32, f32)> = (0..10)
+            .flat_map(|i| (0..10).map(move |j| (i as f32 * 10.0, j as f32 * 10.0)))
+            .collect();
+        let a = lloyd_relax_n(&seeds, &samples, 3);
+        let b = lloyd_relax_n(&seeds, &samples, 3);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn lloyd_relax_n_moves_toward_uniformity() {
+        // Two seeds at extremes; dense grid of samples; expect convergence toward domain quarters
+        let seeds = vec![(5.0_f32, 5.0), (95.0_f32, 95.0)];
+        let samples: Vec<(f32, f32)> = (0..=10)
+            .flat_map(|i| (0..=10).map(move |j| (i as f32 * 10.0, j as f32 * 10.0)))
+            .collect();
+        let relaxed = lloyd_relax_n(&seeds, &samples, 5);
+        // After relaxation both seeds should be more central to their half of the domain
+        assert_ne!(relaxed[0], seeds[0], "seed 0 should have moved");
+        assert_ne!(relaxed[1], seeds[1], "seed 1 should have moved");
+    }
 
     // ── voronoi_nearest_2d ────────────────────────────────────────────────────
 

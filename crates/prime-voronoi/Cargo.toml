@@ -11,7 +11,8 @@ keywords    = ["voronoi", "delaunay", "procedural", "spatial", "noise"]
 categories  = ["mathematics", "game-engines"]
 
 [dependencies]
-glam = { workspace = true }
+glam         = { workspace = true }
+prime-random = { path = "../prime-random", version = "1.1.1" }
 
 [dev-dependencies]
 criterion = { workspace = true }

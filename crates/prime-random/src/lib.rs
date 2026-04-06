@@ -503,7 +503,7 @@ pub fn memoize_1d(f: fn(f32) -> f32, a: f32, b: f32, n: usize) -> impl Fn(f32) -
     }
 }
 
-// ── Pure Bridson ──────────────────────────────────────────────────────────────
+// ── Bridson Poisson Disk (original — pure fold, preserved for research comparison) ──
 
 struct BridsonParams {
     width: f32,
@@ -586,7 +586,7 @@ fn bridson_step(state: &BridsonState, p: &BridsonParams) -> BridsonState {
         }
     } else {
         BridsonState {
-            grid: state.grid.clone(),  // O(1) for persistent vector
+            grid: state.grid.clone(),
             active: state.active.iter().enumerate()
                 .filter(|(i, _)| *i != ai)
                 .map(|(_, &v)| v)
@@ -597,13 +597,11 @@ fn bridson_step(state: &BridsonState, p: &BridsonParams) -> BridsonState {
     }
 }
 
-/// Poisson disk sampling — minimum-distance spacing in 2D.
+/// Poisson disk sampling — original pure-fold implementation, preserved for research comparison.
 ///
-/// Bridson's algorithm (2007) as a pure state fold (ADVANCE).
-/// Each step is `(state) -> new_state`. No mutable shared state.
+/// **Use `poisson_disk` for production.** This variant clones the spatial grid on every
+/// step — O(cols × rows) per point. Kept alongside the rewrite to enable direct benchmarking.
 ///
-/// Performance: each step clones the spatial grid O(cols x rows).
-/// Typical game domains (< 2000x2000, min_dist > 5) are negligible.
 /// ```rust
 /// # use prime_random::poisson_disk_2d;
 /// let (pts, _seed) = poisson_disk_2d(42, 100.0, 100.0, 10.0, 30);
@@ -641,16 +639,137 @@ pub fn poisson_disk_2d(
 
     // ADVANCE: pure state transition via successors; terminates when active list empties
     let final_state = std::iter::successors(Some(initial), |state| {
-        if state.active.is_empty() {
-            None
-        } else {
-            Some(bridson_step(state, &p))
-        }
+        if state.active.is_empty() { None } else { Some(bridson_step(state, &p)) }
     })
     .last()
     .unwrap();
 
     (final_state.points, final_state.seed)
+}
+
+// ── Bridson Poisson Disk (rewrite — internal mutation, pure external contract) ──
+
+/// Generate a Poisson disk sampling of a 2D domain.
+///
+/// # Math
+///
+/// Bridson's algorithm (2007). Guarantees every pair of returned points
+/// satisfies `|p_i - p_j| >= min_dist`. Grid cell size `min_dist / √2`
+/// ensures each cell holds at most one point, making neighborhood checks O(1).
+///
+/// Internal mutation (grid, active list) is used for performance. The external
+/// contract remains pure: same inputs always produce the same output.
+///
+/// # Arguments
+/// * `width`        — domain width in world units (must be > 0)
+/// * `height`       — domain height in world units (must be > 0)
+/// * `min_dist`     — minimum distance between any two points (must be > 0)
+/// * `max_attempts` — candidate attempts per active point before saturation (30 is standard)
+/// * `seed`         — deterministic seed; same seed produces identical output
+///
+/// # Returns
+/// `Vec<(f32, f32)>` of coordinates, all within `[0, width) × [0, height)`.
+/// Returns empty `Vec` on invalid inputs (zero or negative dimensions/distance).
+///
+/// # Example
+/// ```rust
+/// # use prime_random::poisson_disk;
+/// let pts = poisson_disk(100.0, 100.0, 10.0, 30, 42);
+/// assert!(pts.len() > 10);
+/// for i in 0..pts.len() {
+///     for j in (i + 1)..pts.len() {
+///         let dx = pts[i].0 - pts[j].0;
+///         let dy = pts[i].1 - pts[j].1;
+///         assert!((dx * dx + dy * dy).sqrt() >= 10.0 - 1e-4);
+///     }
+/// }
+/// ```
+pub fn poisson_disk(
+    width: f32,
+    height: f32,
+    min_dist: f32,
+    max_attempts: usize,
+    seed: u32,
+) -> Vec<(f32, f32)> {
+    if min_dist <= 0.0 || width <= 0.0 || height <= 0.0 {
+        return Vec::new();
+    }
+
+    let cell_size  = min_dist / 2.0_f32.sqrt();
+    let cols       = (width  / cell_size).ceil() as usize + 1;
+    let rows       = (height / cell_size).ceil() as usize + 1;
+    let min_dist_sq = min_dist * min_dist;
+
+    // ADVANCE-EXCEPTION: internal mutation for O(1) grid access.
+    // External contract is pure — same seed always produces the same Vec.
+    let mut grid:   Vec<Option<usize>> = vec![None; cols * rows];
+    let mut active: Vec<usize>         = Vec::new();
+    let mut points: Vec<(f32, f32)>    = Vec::new();
+    let mut s = seed;
+
+    // Place first point
+    let (x0f, s1) = prng_next(s);
+    let (y0f, s2) = prng_next(s1);
+    s = s2;
+    let x0    = x0f * width;
+    let y0    = y0f * height;
+    let cell0 = (y0 / cell_size) as usize * cols + (x0 / cell_size) as usize;
+    grid[cell0] = Some(0);
+    active.push(0);
+    points.push((x0, y0));
+
+    'outer: while !active.is_empty() {
+        // Pick a random active point
+        let (af, s3) = prng_next(s);
+        s = s3;
+        let ai     = (af * active.len() as f32) as usize % active.len();
+        let (px, py) = points[active[ai]];
+
+        for _ in 0..max_attempts {
+            // Sample annulus [min_dist, 2*min_dist)
+            let (rf, s4) = prng_next(s);
+            let (tf, s5) = prng_next(s4);
+            s = s5;
+            let r     = min_dist * (1.0 + rf);
+            let theta = tf * std::f32::consts::TAU;
+            let cx    = px + r * theta.cos();
+            let cy    = py + r * theta.sin();
+
+            // Bounds check
+            if cx < 0.0 || cx >= width || cy < 0.0 || cy >= height {
+                continue;
+            }
+
+            let gcx = (cx / cell_size) as usize;
+            let gcy = (cy / cell_size) as usize;
+
+            // 5×5 neighborhood check — O(1) per candidate
+            let too_close = (gcy.saturating_sub(2)..(gcy + 3).min(rows))
+                .flat_map(|gy| (gcx.saturating_sub(2)..(gcx + 3).min(cols))
+                    .map(move |gx| (gx, gy)))
+                .filter_map(|(gx, gy)| grid[gy * cols + gx])
+                .any(|pi| {
+                    let (qx, qy) = points[pi];
+                    let dx = cx - qx;
+                    let dy = cy - qy;
+                    dx * dx + dy * dy < min_dist_sq
+                });
+
+            if !too_close {
+                let new_idx  = points.len();
+                let cell_idx = gcy * cols + gcx;
+                grid[cell_idx] = Some(new_idx);
+                active.push(new_idx);
+                points.push((cx, cy));
+                continue 'outer;
+            }
+        }
+
+        // All attempts exhausted — saturate this point
+        active.swap_remove(ai);
+    }
+
+    points
 }
 
 #[cfg(test)]
@@ -727,12 +846,12 @@ mod tests {
         assert!((counts[2] as isize - (n / 4) as isize).unsigned_abs() < tolerance);
     }
 
-    // ── poisson_disk_2d ───────────────────────────────────────────────────────
+    // ── poisson_disk ─────────────────────────────────────────────────────────
 
     #[test]
     fn poisson_disk_min_distance_satisfied() {
         let min_dist = 10.0f32;
-        let (pts, _) = poisson_disk_2d(42, 100.0, 100.0, min_dist, 30);
+        let pts = poisson_disk(100.0, 100.0, min_dist, 30, 42);
         assert!(!pts.is_empty());
         for i in 0..pts.len() {
             for j in (i + 1)..pts.len() {
@@ -745,7 +864,7 @@ mod tests {
 
     #[test]
     fn poisson_disk_points_within_bounds() {
-        let (pts, _) = poisson_disk_2d(1, 50.0, 80.0, 8.0, 30);
+        let pts = poisson_disk(50.0, 80.0, 8.0, 30, 1);
         pts.iter().for_each(|&(x, y)| {
             assert!(x >= 0.0 && x < 50.0);
             assert!(y >= 0.0 && y < 80.0);
@@ -754,8 +873,9 @@ mod tests {
 
     #[test]
     fn poisson_disk_deterministic() {
-        let (a, _) = poisson_disk_2d(5, 60.0, 60.0, 8.0, 30);
-        let (b, _) = poisson_disk_2d(5, 60.0, 60.0, 8.0, 30);
+        // values established for rewrite — clean break, no shipped consumers at time of change
+        let a = poisson_disk(60.0, 60.0, 8.0, 30, 5);
+        let b = poisson_disk(60.0, 60.0, 8.0, 30, 5);
         assert_eq!(a.len(), b.len());
         a.iter().zip(b.iter()).for_each(|(pa, pb)| {
             assert!((pa.0 - pb.0).abs() < 1e-5);
@@ -764,9 +884,11 @@ mod tests {
     }
 
     #[test]
-    fn poisson_disk_returns_seed() {
-        let (_, seed) = poisson_disk_2d(42, 100.0, 100.0, 10.0, 30);
-        assert_ne!(seed, 42);
+    fn poisson_disk_invalid_inputs_return_empty() {
+        assert!(poisson_disk(0.0,   100.0, 10.0, 30, 42).is_empty());
+        assert!(poisson_disk(100.0, 0.0,   10.0, 30, 42).is_empty());
+        assert!(poisson_disk(100.0, 100.0, 0.0,  30, 42).is_empty());
+        assert!(poisson_disk(100.0, 100.0, -1.0, 30, 42).is_empty());
     }
 
     // ── prng_shuffled ─────────────────────────────────────────────────────────
@@ -1296,7 +1418,7 @@ mod tests {
         let width = 100.0_f32;
         let height = 100.0_f32;
         let min_dist = 5.0_f32;
-        let (pts, _) = poisson_disk_2d(42, width, height, min_dist, 30);
+        let pts = poisson_disk(width, height, min_dist, 30, 42);
         // Theoretical max: area / (pi * (r/2)^2) where r = min_dist
         let theoretical_max = (width * height) / (PI * (min_dist / 2.0).powi(2));
         let density = pts.len() as f32 / theoretical_max;

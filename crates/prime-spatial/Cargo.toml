@@ -11,4 +11,15 @@ keywords    = ["spatial", "collision", "raycast", "aabb", "frustum"]
 categories  = ["mathematics", "game-engines"]
 
 [dependencies]
-glam = { workspace = true }
+glam          = { workspace = true }
+prime-random  = { path = "../prime-random",  version = "1.1.1" }
+prime-voronoi = { path = "../prime-voronoi", version = "1.1.1" }
+rayon         = "1"
+
+[dev-dependencies]
+criterion = { workspace = true }
+rustfft   = "6"
+
+[[bench]]
+name    = "spatial_bench"
+harness = false
