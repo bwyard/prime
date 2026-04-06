@@ -17,3 +17,6 @@ Thumbs.db
 
 # Local only — not ready to publish
 THESIS.md
+
+# Research crate — local only, never published or committed
+crates/prime-research/

@@ -82,6 +82,55 @@ Benchmarked against:
 
 ---
 
+## Structural Density Ceiling — Finding and Resolution
+
+*(Observational — from calibration data 2026-04-05)*
+
+### Two-pass ceiling (per-cell cull → global cull)
+
+All two-pass scatter-cull approaches fail to reach Bridson's point density even at extreme overage (20×).
+Maximum achievable at 100×100, min_dist=5.0: 94–96% of Bridson's count (E best at 96.1%).
+
+**Identified cause:** cell seams create dead zones. The per-cell cull removes candidates near cell
+boundaries before the global cull can resolve them. Adjacent cells independently discard their
+seam-region candidates, leaving dead zones that no amount of overage can fill.
+
+### Single-pass resolution (scatter + single global cull)
+
+The solution tested: skip per-cell cull entirely. Scatter using cell structure for seed organisation
+only, flatten all candidates, one global `cull_to_min_dist` pass. Candidates from both sides of every
+seam compete in the same pass.
+
+**`scatter_global_rect` result (2026-04-05):** reaches 258/259 pts (99.6% Bridson) at overage=12.73.
+No ceiling. Two-pass C-B hits the ceiling at overage=20 with 244 pts (94.2%).
+
+**CV(5×5) at overage=2.0: 0.121** — slightly better than Bridson's 0.128 on the coarse grid.
+
+| Approach             | Calibrated overage | Achieved pts | % of Bridson |
+|----------------------|--------------------|--------------|--------------|
+| global_rect          | **12.73**          | **258**      | **99.6%**    |
+| global_voronoi K=10  | 20.0 (ceiling)     | 251          | 96.9%        |
+| global_half_heart    | 20.0 (ceiling)     | 218          | 84.2%        |
+
+`global_voronoi` (251 pts, 96.9%) and `global_half_heart` (249 pts, 96.1%) still hit the 20× ceiling.
+Both scatter uniformly across the full domain via K streams — functionally a single large uniform scatter
+(~6000 candidates at ceiling). Diminishing returns at this density prevent filling all packing-optimal positions.
+CV(5×5) at ceiling: global_half_heart=0.104, global_voronoi=0.134 — both better than Bridson's 0.128.
+
+**Why global_rect breaks the ceiling while voronoi/half_heart don't:**
+global_rect generates 16×target×overage candidates with spatially-tiled scatter — each of 16 cells
+contributes dedicated candidates to its sub-region. At calibrated overage=12.73: ~6110 candidates
+with complete spatial coverage. global_voronoi/half_heart scatter K×target×overage uniformly across
+the full domain — no sub-region guarantee. Their ceiling is the fundamental limit of pure random
+scatter over the full domain at ~6000 candidates.
+
+**Conclusion:** the structural density ceiling was entirely an artifact of the two-pass cull architecture.
+Removing per-cell cull resolves it when scatter is spatially tiled (global_rect: 99.6% Bridson).
+For architecturally uniform scatter (global_voronoi, global_half_heart), a smaller ceiling (96–97%)
+remains — a property of the scatter strategy, not the cull architecture.
+
+---
+
 ## Open Questions / Deferred Decisions
 
 | Item | Status | Note |
@@ -139,6 +188,7 @@ Blue noise spectral analysis (radial power spectrum) — deferred until basic re
 4. ~~Approach D — Voronoi K₁₀ scatter-cull~~ ✅ done (single-level, K=10, 3 Lloyd iters)
 5. ~~Approach F — sheared variable-size scatter-cull~~ ✅ done (shear=0.5 and variable_rect variants)
 6. ~~Approach E — half-heart scatter-cull~~ ✅ first pass done (diagonal + shift Voronoi)
+7. ~~Single-pass global-cull variants~~ ✅ done (scatter_global_rect, scatter_global_voronoi, scatter_global_half_heart)
 
 Wire Criterion benchmarks after each approach before moving to the next.
 

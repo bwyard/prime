@@ -4,8 +4,13 @@ use prime_spatial::{
     poisson_rect_partitioned, scatter_cull_rect,
     scatter_cull_voronoi, scatter_cull_voronoi_recursive,
     scatter_cull_sheared, scatter_cull_half_heart,
+    scatter_global_rect, scatter_global_voronoi, scatter_global_half_heart,
+    scatter_cull_sdf_ellipse, scatter_global_sdf_ellipse,
+    scatter_cull_clipped_circle, scatter_global_clipped_circle,
+    scatter_cull_triangles, scatter_global_triangles,
+    global_cull_to_min_dist,
 };
-use prime_spatial::research::poisson_disk_wei;
+use prime_random::poisson_disk;
 
 // Research benchmark: Approach C — rectangular partitions
 // Strategy A (partition-Bridson) vs Strategy B (scatter-cull) vs serial Bridson baseline
@@ -43,15 +48,6 @@ fn bench_approach_c(c: &mut Criterion) {
     group.finish();
 }
 
-fn bench_wei(c: &mut Criterion) {
-    let mut group = c.benchmark_group("wei_2008");
-    for domain in [100.0f32, 200.0, 500.0] {
-        group.bench_function(format!("{domain}x{domain}"), |b| {
-            b.iter(|| poisson_disk_wei(black_box(domain), black_box(domain), 5.0, 30, 42))
-        });
-    }
-    group.finish();
-}
 
 fn bench_approach_d(c: &mut Criterion) {
     let mut group = c.benchmark_group("approach_d_voronoi");
@@ -166,5 +162,290 @@ fn bench_approach_e(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_approach_c, bench_approach_d, bench_approach_d_recursive, bench_approach_f, bench_approach_e, bench_wei);
+fn bench_total_pipeline(c: &mut Criterion) {
+    let mut group = c.benchmark_group("total_pipeline");
+    let pi4 = std::f32::consts::FRAC_PI_4;
+
+    // Reference: serial Bridson — the standard we calibrate against.
+    // Scatter-cull approaches + global_cull_to_min_dist must beat this
+    // wall-clock time to justify their existence at each domain size.
+    for domain in [100.0f32, 200.0, 500.0] {
+        group.bench_function(format!("bridson/{domain}x{domain}"), |b| {
+            b.iter(|| poisson_disk(black_box(domain), black_box(domain), 5.0, 30, 42))
+        });
+
+        // C-B + global cull: calibrated overage ~3.0
+        group.bench_function(format!("c_b_global/{domain}x{domain}"), |b| {
+            b.iter(|| {
+                let cells = scatter_cull_rect(black_box(domain), black_box(domain), 5.0, 4, 4, 30, 3.0, 42);
+                let flat: Vec<_> = cells.into_iter().flatten().collect();
+                global_cull_to_min_dist(flat, domain, domain, 5.0)
+            })
+        });
+
+        // D + global cull: calibrated overage ~5.0
+        group.bench_function(format!("d_global/{domain}x{domain}"), |b| {
+            b.iter(|| {
+                let cells = scatter_cull_voronoi(black_box(domain), black_box(domain), 5.0, 10, 3, 50, 5.0, 42);
+                let flat: Vec<_> = cells.into_iter().flatten().collect();
+                global_cull_to_min_dist(flat, domain, domain, 5.0)
+            })
+        });
+
+        // E + global cull: calibrated overage ~3.0
+        group.bench_function(format!("e_global/{domain}x{domain}"), |b| {
+            b.iter(|| {
+                let cells = scatter_cull_half_heart(black_box(domain), black_box(domain), 5.0, 5, pi4, -15.0, 10.0, 50, 3.0, 42);
+                let flat: Vec<_> = cells.into_iter().flatten().collect();
+                global_cull_to_min_dist(flat, domain, domain, 5.0)
+            })
+        });
+    }
+
+    group.finish();
+}
+
+fn bench_single_pass(c: &mut Criterion) {
+    let mut group = c.benchmark_group("single_pass_global_cull");
+    let pi4 = std::f32::consts::FRAC_PI_4;
+
+    // Single-pass global-cull variants vs Bridson — direct comparison.
+    // These scatter using cell structure for seed organisation only, then
+    // apply one global min-dist cull across ALL candidates.
+    // Expected: higher survivor density than per-cell-cull variants (no seam dead zones).
+    for domain in [100.0f32, 200.0, 500.0] {
+        // Bridson reference — the target to beat
+        group.bench_function(format!("bridson/{domain}x{domain}"), |b| {
+            b.iter(|| prime_random::poisson_disk(black_box(domain), black_box(domain), 5.0, 30, 42))
+        });
+
+        // Global-rect: rectangular scatter, no per-cell cull
+        group.bench_function(format!("global_rect/{domain}x{domain}"), |b| {
+            b.iter(|| scatter_global_rect(black_box(domain), black_box(domain), 5.0, 4, 4, 30, 2.0, 42))
+        });
+
+        // Global-voronoi: K=10 scatter, no per-cell cull
+        group.bench_function(format!("global_voronoi/{domain}x{domain}"), |b| {
+            b.iter(|| scatter_global_voronoi(black_box(domain), black_box(domain), 5.0, 10, 3, 30, 2.0, 42))
+        });
+
+        // Global-half-heart: half-heart sites scatter, no per-cell cull
+        group.bench_function(format!("global_half_heart/{domain}x{domain}"), |b| {
+            b.iter(|| scatter_global_half_heart(black_box(domain), black_box(domain), 5.0, 5, pi4, -15.0, 10.0, 30, 2.0, 42))
+        });
+
+        // Two-pass C-B + global_cull for direct comparison
+        group.bench_function(format!("two_pass_c_b/{domain}x{domain}"), |b| {
+            b.iter(|| {
+                let cells = scatter_cull_rect(black_box(domain), black_box(domain), 5.0, 4, 4, 30, 2.0, 42);
+                let flat: Vec<_> = cells.into_iter().flatten().collect();
+                global_cull_to_min_dist(flat, domain, domain, 5.0)
+            })
+        });
+    }
+
+    group.finish();
+}
+
+fn bench_approach_g(c: &mut Criterion) {
+    let mut group = c.benchmark_group("approach_g_sdf_ellipse");
+
+    for domain in [100.0f32, 200.0, 500.0] {
+        // Two-pass: circle cells (aspect=1.0), coverage=1.2
+        group.bench_function(format!("two_pass_circle/{domain}x{domain}"), |b| {
+            b.iter(|| {
+                let cells = scatter_cull_sdf_ellipse(
+                    black_box(domain), black_box(domain),
+                    5.0, 4, 4, 1.0, 1.2, 300, 5.0, 42,
+                );
+                let flat: Vec<_> = cells.into_iter().flatten().collect();
+                global_cull_to_min_dist(flat, domain, domain, 5.0)
+            })
+        });
+
+        // Single-pass: circle cells, coverage=1.2
+        group.bench_function(format!("single_pass_circle/{domain}x{domain}"), |b| {
+            b.iter(|| {
+                scatter_global_sdf_ellipse(
+                    black_box(domain), black_box(domain),
+                    5.0, 4, 4, 1.0, 1.2, 300, 5.0, 42,
+                )
+            })
+        });
+
+        // Single-pass: ellipse cells (aspect=2.0), coverage=1.2
+        group.bench_function(format!("single_pass_ellipse/{domain}x{domain}"), |b| {
+            b.iter(|| {
+                scatter_global_sdf_ellipse(
+                    black_box(domain), black_box(domain),
+                    5.0, 4, 4, 2.0, 1.2, 300, 5.0, 42,
+                )
+            })
+        });
+
+        // Two-pass clipped-circle, coverage=1.2
+        group.bench_function(format!("two_pass_clipped_circle/{domain}x{domain}"), |b| {
+            b.iter(|| {
+                let cells = scatter_cull_clipped_circle(
+                    black_box(domain), black_box(domain),
+                    5.0, 4, 4, 1.2, 300, 5.0, 42,
+                );
+                let flat: Vec<_> = cells.into_iter().flatten().collect();
+                global_cull_to_min_dist(flat, domain, domain, 5.0)
+            })
+        });
+
+        // Single-pass clipped-circle, coverage=1.2
+        group.bench_function(format!("single_pass_clipped_circle/{domain}x{domain}"), |b| {
+            b.iter(|| {
+                scatter_global_clipped_circle(
+                    black_box(domain), black_box(domain),
+                    5.0, 4, 4, 1.2, 300, 5.0, 42,
+                )
+            })
+        });
+
+        // Bridson reference
+        group.bench_function(format!("bridson/{domain}x{domain}"), |b| {
+            b.iter(|| prime_random::poisson_disk(black_box(domain), black_box(domain), 5.0, 30, 42))
+        });
+    }
+
+    group.finish();
+}
+
+fn bench_parallel(c: &mut Criterion) {
+    let mut group = c.benchmark_group("parallel_scatter");
+    let pi4 = std::f32::consts::FRAC_PI_4;
+
+    // Benchmark the parallelised scatter functions against the Bridson serial baseline.
+    // These are the same function calls as the serial benches above — they now use
+    // Rayon par_iter internally. The benchmark measures the parallel speedup.
+    for domain in [100.0f32, 200.0, 500.0] {
+        // Bridson serial baseline
+        group.bench_function(format!("bridson/{domain}x{domain}"), |b| {
+            b.iter(|| poisson_disk(black_box(domain), black_box(domain), 5.0, 30, 42))
+        });
+
+        // Parallel rect scatter-cull (Approach C-B)
+        group.bench_function(format!("par_scatter_cull_rect/{domain}x{domain}"), |b| {
+            b.iter(|| {
+                scatter_cull_rect(
+                    black_box(domain), black_box(domain),
+                    5.0, 4, 4, 30, 1.5, 42,
+                )
+            })
+        });
+
+        // Parallel rect global scatter (Approach C-B global)
+        group.bench_function(format!("par_scatter_global_rect/{domain}x{domain}"), |b| {
+            b.iter(|| {
+                scatter_global_rect(
+                    black_box(domain), black_box(domain),
+                    5.0, 4, 4, 30, 2.0, 42,
+                )
+            })
+        });
+
+        // Parallel voronoi scatter-cull (Approach D)
+        group.bench_function(format!("par_scatter_cull_voronoi/{domain}x{domain}"), |b| {
+            b.iter(|| {
+                scatter_cull_voronoi(
+                    black_box(domain), black_box(domain),
+                    5.0, 10, 3, 25, 1.5, 42,
+                )
+            })
+        });
+
+        // Parallel half-heart scatter-cull (Approach E)
+        group.bench_function(format!("par_scatter_cull_half_heart/{domain}x{domain}"), |b| {
+            b.iter(|| {
+                scatter_cull_half_heart(
+                    black_box(domain), black_box(domain),
+                    5.0, 5, pi4, -9.0, 6.0, 20, 1.5, 42,
+                )
+            })
+        });
+
+        // Parallel half-heart global scatter (Approach E global)
+        group.bench_function(format!("par_scatter_global_half_heart/{domain}x{domain}"), |b| {
+            b.iter(|| {
+                scatter_global_half_heart(
+                    black_box(domain), black_box(domain),
+                    5.0, 5, pi4, -15.0, 10.0, 30, 2.0, 42,
+                )
+            })
+        });
+
+        // Parallel sheared scatter-cull (Approach F)
+        group.bench_function(format!("par_scatter_cull_sheared/{domain}x{domain}"), |b| {
+            b.iter(|| {
+                scatter_cull_sheared(
+                    black_box(domain), black_box(domain),
+                    5.0, 4, 4, 0.5, 20, 2.0, 42,
+                )
+            })
+        });
+
+        // Parallel SDF ellipse scatter-cull (Approach G two-pass)
+        group.bench_function(format!("par_scatter_cull_sdf_ellipse/{domain}x{domain}"), |b| {
+            b.iter(|| {
+                scatter_cull_sdf_ellipse(
+                    black_box(domain), black_box(domain),
+                    5.0, 4, 4, 1.0, 1.2, 300, 3.0, 42,
+                )
+            })
+        });
+
+        // Parallel SDF ellipse global scatter (Approach G one-pass)
+        group.bench_function(format!("par_scatter_global_sdf_ellipse/{domain}x{domain}"), |b| {
+            b.iter(|| {
+                scatter_global_sdf_ellipse(
+                    black_box(domain), black_box(domain),
+                    5.0, 4, 4, 1.0, 1.2, 300, 3.0, 42,
+                )
+            })
+        });
+    }
+
+    group.finish();
+}
+
+fn bench_approach_h(c: &mut Criterion) {
+    let mut group = c.benchmark_group("approach_h_triangles");
+
+    // 4×4 grid → 32 triangles; jitter=0.2 for irregular tiling
+    for domain in [100.0f32, 200.0, 500.0] {
+        // Two-pass: per-cell cull then global cull
+        group.bench_function(format!("two_pass/{domain}x{domain}"), |b| {
+            b.iter(|| {
+                let cells = scatter_cull_triangles(
+                    black_box(domain), black_box(domain),
+                    5.0, 4, 4, 0.2, 300, 5.0, 42,
+                );
+                let flat: Vec<_> = cells.into_iter().flatten().collect();
+                global_cull_to_min_dist(flat, domain, domain, 5.0)
+            })
+        });
+
+        // Single-pass: scatter only, one global cull
+        group.bench_function(format!("single_pass/{domain}x{domain}"), |b| {
+            b.iter(|| {
+                scatter_global_triangles(
+                    black_box(domain), black_box(domain),
+                    5.0, 4, 4, 0.2, 300, 5.0, 42,
+                )
+            })
+        });
+
+        // Bridson reference
+        group.bench_function(format!("bridson/{domain}x{domain}"), |b| {
+            b.iter(|| prime_random::poisson_disk(black_box(domain), black_box(domain), 5.0, 30, 42))
+        });
+    }
+
+    group.finish();
+}
+
+criterion_group!(benches, bench_approach_c, bench_approach_d, bench_approach_d_recursive, bench_approach_f, bench_approach_e, bench_total_pipeline, bench_single_pass, bench_approach_g, bench_parallel, bench_approach_h);
 criterion_main!(benches);
