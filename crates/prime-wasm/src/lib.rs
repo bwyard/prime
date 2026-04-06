@@ -420,9 +420,9 @@ pub fn halton_3d(n: u32) -> Box<[f32]> {
 
 /// Poisson-disk 2D sampling. Returns flat `[x0, y0, x1, y1, ...]`.
 #[wasm_bindgen]
-pub fn poisson_disk_2d(seed: f64, width: f32, height: f32, min_dist: f32, max_attempts: f64) -> Box<[f32]> {
-    let (pts, _) = prime_random::poisson_disk_2d(seed as u32, width, height, min_dist, max_attempts as usize);
-    pts.into_iter().flat_map(|(x, y)| [x, y]).collect::<Vec<f32>>().into_boxed_slice()
+pub fn poisson_disk(width: f32, height: f32, min_dist: f32, max_attempts: f64, seed: f64) -> Box<[f32]> {
+    prime_random::poisson_disk(width, height, min_dist, max_attempts as usize, seed as u32)
+        .into_iter().flat_map(|(x, y)| [x, y]).collect::<Vec<f32>>().into_boxed_slice()
 }
 
 // ---------------------------------------------------------------------------
