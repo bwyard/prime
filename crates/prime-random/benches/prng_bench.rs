@@ -25,11 +25,11 @@ fn bench_prng_gaussian(c: &mut Criterion) {
     });
 }
 
-fn bench_poisson_disk_2d(c: &mut Criterion) {
-    let mut group = c.benchmark_group("poisson_disk_2d");
-    for size in [50.0f32, 100.0, 200.0] {
+fn bench_poisson_disk(c: &mut Criterion) {
+    let mut group = c.benchmark_group("poisson_disk");
+    for size in [50.0f32, 100.0, 200.0, 500.0] {
         group.bench_function(format!("{size}x{size}"), |b| {
-            b.iter(|| poisson_disk_2d(black_box(42), size, size, 5.0, 30))
+            b.iter(|| poisson_disk(black_box(size), size, 5.0, 30, 42))
         });
     }
     group.finish();
@@ -86,7 +86,7 @@ criterion_group!(
     benches,
     bench_prng_next,
     bench_prng_gaussian,
-    bench_poisson_disk_2d,
+    bench_poisson_disk,
     bench_monte_carlo_convergence,
     bench_monte_carlo_stratified,
     bench_van_der_corput,
