@@ -573,6 +573,67 @@ fn cull_to_min_dist(
     accepted
 }
 
+// ── Global min-dist cull ──────────────────────────────────────────────────────
+//
+// All scatter-cull approaches guarantee min-dist WITHIN each cell only.
+// Cross-cell seam violations exist because cells are culled independently.
+//
+// To produce output equivalent to serial Bridson (global min-dist), apply
+// global_cull_to_min_dist as a final pass over the flattened point set.
+//
+// The seam violation rate (points removed by global cull / total intra-cell points)
+// is a research metric — it measures how well each approach's geometry contains
+// boundary conflicts within the overage surplus.
+
+/// Apply a global min-dist cull to a flat set of points.
+///
+/// Scans points in input order, accepting each if it is at least `min_dist`
+/// from all previously accepted points. Uses the same O(1)-per-point spatial
+/// grid as the per-cell cull.
+///
+/// Use this as a final pass after any scatter-cull approach to guarantee
+/// global min-dist — equivalent to what `poisson_disk` produces, without
+/// the sequential constraint that makes Bridson slow.
+///
+/// # Math
+///
+/// Same acceptance grid as `cull_to_min_dist`: cell size $c = d / \sqrt{2}$.
+/// For each candidate $p$: accept iff
+/// $$\forall q \in \text{accepted}: \lVert p - q \rVert \geq d_{\min}$$
+///
+/// # Arguments
+/// * `points`    — candidate points in any order; typically the flattened output
+///                 of a scatter-cull function
+/// * `width`, `height` — domain dimensions
+/// * `min_dist`  — global minimum distance constraint
+///
+/// # Returns
+/// Subset of `points` satisfying global min-dist. Order matches input order.
+///
+/// # Example
+/// ```rust
+/// use prime_spatial::{scatter_cull_rect, global_cull_to_min_dist};
+/// let cells = scatter_cull_rect(100.0, 100.0, 5.0, 4, 4, 30, 1.5, 42);
+/// let flat: Vec<_> = cells.into_iter().flatten().collect();
+/// let global = global_cull_to_min_dist(flat, 100.0, 100.0, 5.0);
+/// // global satisfies min-dist across ALL points, not just within cells
+/// for i in 0..global.len() {
+///     for j in (i+1)..global.len() {
+///         let dx = global[i].0 - global[j].0;
+///         let dy = global[i].1 - global[j].1;
+///         assert!((dx*dx + dy*dy).sqrt() >= 5.0 - 1e-4);
+///     }
+/// }
+/// ```
+pub fn global_cull_to_min_dist(
+    points: Vec<(f32, f32)>,
+    width: f32,
+    height: f32,
+    min_dist: f32,
+) -> Vec<(f32, f32)> {
+    cull_to_min_dist(points, 0.0, 0.0, width, height, min_dist)
+}
+
 /// Approach C — Strategy A: Rectangular partitions with Bridson per cell.
 ///
 /// # Math

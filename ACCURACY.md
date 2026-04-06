@@ -175,7 +175,57 @@ cells depends on n_seeds and domain size. Observational — no measurement yet.]
 
 ## Coverage Uniformity
 
-*[pending — divide domain into cells, measure point count variance per approach]*
+Post global-cull stats. `seam_kept` = fraction of intra-cell-valid points that survive
+the global min-dist pass (seam violation rate = 1 - seam_kept). All approaches pass
+`global_cull_to_min_dist` before measurement — output is globally valid (equivalent to Bridson).
+
+CV = coefficient of variation of point density across a grid. Lower = more uniform.
+
+### 100×100 domain, min_dist=5.0, seed=42
+
+| Approach                     | Points | seam_kept | CV(5×5) | CV(10×10) | empty(5×5) |
+|------------------------------|--------|-----------|---------|-----------|------------|
+| Bridson (reference)          | 259    | 1.000     | 0.128   | 0.314     | 0/25       |
+| C-B scatter-cull rect 4×4    | 183    | 0.888     | 0.180   | 0.438     | 0/25       |
+| D   Voronoi K=10, 3 Lloyd    | 139    | 0.959     | 0.310   | 0.659     | 0/25       |
+| D-R recursive Voronoi L=2    | 159    | 0.779     | 0.213   | 0.480     | 0/25       |
+| F   variable-rect (shear=0)  | 186    | 0.830     | 0.137   | 0.423     | 0/25       |
+| F   shear=0.5 brick          | 144    | 0.796     | 0.504   | 0.661     | 3/25       |
+| E   half-heart shift(-9,6)   | 136    | 0.944     | 0.321   | 0.654     | 0/25       |
+| E   half-heart shift(-15,10) | 137    | 0.938     | 0.335   | 0.658     | 0/25       |
+
+### 200×200 domain, min_dist=5.0, seed=42
+
+| Approach                     | Points | seam_kept | CV(5×5) | CV(10×10) | empty(5×5) |
+|------------------------------|--------|-----------|---------|-----------|------------|
+| Bridson (reference)          | 1022   | 1.000     | 0.066   | 0.127     | 0/25       |
+| C-B scatter-cull rect 6×6    | 603    | 0.901     | 0.095   | 0.216     | 0/25       |
+| D   Voronoi K=10, 3 Lloyd    | 337    | 0.983     | 0.204   | 0.406     | 0/25       |
+| D-R recursive Voronoi L=2    | 546    | 0.891     | 0.140   | 0.283     | 0/25       |
+| F   variable-rect (shear=0)  | 638    | 0.885     | 0.126   | 0.239     | 0/25       |
+| F   shear=0.5 brick          | 511    | 0.898     | 0.514   | 0.586     | 4/25       |
+| E   half-heart shift(-9,6)   | 464    | 0.967     | 0.192   | 0.309     | 0/25       |
+| E   half-heart shift(-15,10) | 463    | 0.973     | 0.183   | 0.303     | 0/25       |
+
+*[Claude notation — observations from data, not conclusions:*
+
+*Point count gap: all scatter-cull approaches produce fewer points than Bridson after global cull.
+Bridson fills to near-maximal packing density (259 pts at 100×100). Scatter-cull at comparable
+parameters produces 53–72% of Bridson's count. The global cull removes seam violations,
+reducing further. To match Bridson's point count, overage_ratio needs to be increased.*
+
+*Best CV at 200×200: C-B (0.095) and F-variable-rect (0.126) closest to Bridson (0.066).
+E shift(-15,10) surprisingly strong: 0.183 at 5×5, 0.303 at 10×10. E only has 10 cells vs
+36 for C-B — lower cell overhead, better coarse uniformity.*
+
+*F shear=0.5 is the worst performer on CV (0.514/0.586) and is the only approach with empty
+5×5 cells. The shear creates dense zones and sparse zones, especially at domain edges where
+candidates are filtered out. This is the seam artifact of the shear geometry, not a
+fundamental property — a tighter overage or domain-edge treatment would help.*
+
+*seam_kept interpretation: D (0.959/0.983) and E (0.938–0.973) have the highest seam survival
+rates — meaning very few points are lost to seam violations. Their irregular cell geometry
+produces fewer exact-boundary conflicts than grid-aligned cells (C-B: 0.888/0.901).]*
 
 ---
 
