@@ -138,7 +138,7 @@ Blue noise spectral analysis (radial power spectrum) — deferred until basic re
 3. ~~Wei 2008 baseline~~ ✅ done (single-threaded, in `research.rs`)
 4. ~~Approach D — Voronoi K₁₀ scatter-cull~~ ✅ done (single-level, K=10, 3 Lloyd iters)
 5. ~~Approach F — sheared variable-size scatter-cull~~ ✅ done (shear=0.5 and variable_rect variants)
-6. Approach E — half-heart scatter-cull (most complex, implement last)
+6. ~~Approach E — half-heart scatter-cull~~ ✅ first pass done (diagonal + shift Voronoi)
 
 Wire Criterion benchmarks after each approach before moving to the next.
 
@@ -186,7 +186,23 @@ Hypothesis: K=10 coarse Voronoi cells → less total cull work per cell at large
 Lloyd convergence produces more uniform per-cell point density than rectangular partitioning.
 
 ### Approach E — Half-Heart Scatter-Cull
-*[pending]*
+
+See `ACCURACY.md` for full data.
+
+First observational pass. Sites: N seeds along a 45° diagonal + N shifted copies
+= 2N Voronoi sites. The paired layout creates elongated irregular cells oriented
+along the diagonal.
+
+**Key observation:** shift(-9,6) at 100×100 with 10 cells is 16.6µs — marginally
+faster than C-B at 17.2µs. No Lloyd overhead, no rectangular grid overhead.
+
+**Open question — boundary cells:** cells that straddle the domain edge are clipped
+by the boundary. Interior cells keep the elongated lobe shape; edge cells become
+irregular fragments. This is acceptable — the goal is abnormal partition shapes,
+not exact half-heart geometry. Proportion of interior vs clipped cells not yet measured.
+
+**Next step:** fixed n_seeds across domain sizes for fair comparison; vary
+diagonal_angle; vary shift magnitude. Still purely observational.
 
 ### Approach F — Sheared Variable-Size Scatter-Cull
 

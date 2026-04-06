@@ -1,6 +1,10 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use std::hint::black_box;
-use prime_spatial::{poisson_rect_partitioned, scatter_cull_rect, scatter_cull_voronoi, scatter_cull_voronoi_recursive, scatter_cull_sheared};
+use prime_spatial::{
+    poisson_rect_partitioned, scatter_cull_rect,
+    scatter_cull_voronoi, scatter_cull_voronoi_recursive,
+    scatter_cull_sheared, scatter_cull_half_heart,
+};
 use prime_spatial::research::poisson_disk_wei;
 
 // Research benchmark: Approach C — rectangular partitions
@@ -130,5 +134,37 @@ fn bench_approach_f(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_approach_c, bench_approach_d, bench_approach_d_recursive, bench_approach_f, bench_wei);
+fn bench_approach_e(c: &mut Criterion) {
+    let mut group = c.benchmark_group("approach_e_half_heart");
+
+    // Observational: vary shift vector and n_seeds to see cell geometry effects.
+    // shift(-9, 6) — from handoff example; shift(-15, 10) — steeper diagonal shift
+    let pi4 = std::f32::consts::FRAC_PI_4;
+
+    for (domain, n_seeds) in [(100.0f32, 5usize), (200.0, 10), (500.0, 20)] {
+        let target = 20usize;
+
+        group.bench_function(format!("shift_d9_6/{domain}x{domain}_n{n_seeds}"), |b| {
+            b.iter(|| {
+                scatter_cull_half_heart(
+                    black_box(domain), black_box(domain),
+                    5.0, n_seeds, pi4, -9.0, 6.0, target, 1.5, 42,
+                )
+            })
+        });
+
+        group.bench_function(format!("shift_d15_10/{domain}x{domain}_n{n_seeds}"), |b| {
+            b.iter(|| {
+                scatter_cull_half_heart(
+                    black_box(domain), black_box(domain),
+                    5.0, n_seeds, pi4, -15.0, 10.0, target, 1.5, 42,
+                )
+            })
+        });
+    }
+
+    group.finish();
+}
+
+criterion_group!(benches, bench_approach_c, bench_approach_d, bench_approach_d_recursive, bench_approach_f, bench_approach_e, bench_wei);
 criterion_main!(benches);

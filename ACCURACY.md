@@ -137,19 +137,39 @@ across cells than random rectangular partitioning, reducing cull rejection rate.
 
 ---
 
-## Approach E — Half-Heart
+## Approach E — Half-Heart Diagonal
 
 ### E-A: Partition-Bridson
-*[pending]*
+*[skipped — same reasoning as D-A and F-A]*
 
 ### E-B: Scatter-Cull (seeded)
-Parameters: 5 seed points → 10 derived, shift TBD, overage_ratio=TBD
+First observational pass. Parameters: diagonal_angle=π/4 (45°), two shift vectors,
+overage_ratio=1.5, target_per_cell=20. Cell count = 2*n_seeds.
 
-| Domain | Faces | Scatter time | Cull time | Total | Survivor rate |
-|--------|-------|-------------|-----------|-------|---------------|
-| | | | | | |
+Two shift vectors tested:
+- **shift(-9, 6)** — from handoff example
+- **shift(-15, 10)** — steeper diagonal shift
 
-*[pending]*
+| Domain  | n_seeds | Cells | shift(-9,6) | shift(-15,10) | C-B (reference) |
+|---------|---------|-------|-------------|---------------|-----------------|
+| 100×100 | 5       | 10    | **16.6 µs** | 15.2 µs       | 17.2 µs         |
+| 200×200 | 10      | 20    | 51.7 µs     | 53.0 µs       | 50.1 µs (16 cells) |
+| 500×500 | 20      | 40    | 754 µs      | **302 µs**    | 105.9 µs (64 cells) |
+
+Min-dist hold: 100% (confirmed by test suite)
+Determinism: confirmed — same seed → identical output
+
+*[Claude notation: E at 100×100 (10 cells, no Lloyd overhead) is slightly faster than
+C-B (16 cells). The larger shift vector at 500×500 is 2.5× faster than the small shift —
+asymmetric cell layout concentrates candidates into smaller cells on average, reducing cull work.
+500×500 slowness vs C-B is partly full-domain grid overhead in cull (same issue as F,
+noted as post-research optimisation). Also: n_seeds scales with domain in this benchmark
+(5→10→20), so E has 4× more cells at 500 than at 100, making comparison not apples-to-apples.
+Need a fixed-n_seeds run for fair comparison — deferred.]*
+
+*[Open question: boundary cells lose their lobe shape when clipped by domain edge. Interior
+cells should retain the half-heart / elongated character. Fraction of clipped vs unclipped
+cells depends on n_seeds and domain size. Observational — no measurement yet.]*
 
 ---
 
