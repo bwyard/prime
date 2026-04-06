@@ -77,16 +77,37 @@ Determinism: confirmed — same seed → identical output
 ## Approach F — Sheared Variable-Size Partitions
 
 ### F-A: Partition-Bridson
-*[pending]*
+*[skipped — same reasoning as D-A: geometric variant of C-A, no new partition-Bridson data.]*
 
 ### F-B: Scatter-Cull (seeded)
-Parameters: shear angle TBD, variable cell widths seeded
+Parameters: variable cell widths/heights (seeded), overage_ratio=2.0, 4×4/6×6/8×8 partitions
 
-| Domain | Partitions | Time | vs C-B | vs serial Bridson |
-|--------|------------|------|--------|-------------------|
-| | | | | |
+Two variants benchmarked:
+- **shear=0.5** — brick-pattern parallelogram cells (F-2 + F-1 combined)
+- **variable_rect** — variable sizes, no shear (F-1 only, shear_factor=0.0)
 
-*[pending]*
+| Domain  | F shear=0.5 | F variable_rect | C-B (equal rect) | vs C-B (shear) |
+|---------|-------------|----------------|-----------------|----------------|
+| 100×100 | 27.7 µs     | 50.4 µs        | 17.2 µs         | 0.6× (slower)  |
+| 200×200 | 84.7 µs     | 97.9 µs        | 50.1 µs         | 0.6× (slower)  |
+| 500×500 | 1.23 ms     | 477.3 µs       | 105.9 µs        | 0.09× (11.6× slower) |
+
+Min-dist hold: 100% (confirmed by test suite)
+Determinism: confirmed — same seed → identical output
+
+*[Implementation note: F-B currently uses the full domain grid for min-dist culling
+(cull_to_min_dist called with full width/height), because sheared candidates can land
+anywhere in the domain after the domain-bounds filter. This inflates the grid allocation
+from ~300 cells/partition (C-B, per-cell grid) to ~19,900 cells/partition (F-B, full domain
+grid). The 500×500 performance penalty is partly this overhead — not necessarily intrinsic
+to the geometric approach. Optimisation: pass the parallelogram bounding box to
+cull_to_min_dist instead of full domain. Left as a post-research pass.]*
+
+*[Also note: shear=0.5 at 500×500 is 2.6× slower than variable_rect. With 8 rows and
+shear_factor=0.5, the last row (row 7) shifts right by 7 × 0.5 × 62.5 = 218px. Many
+candidates for edge rows land outside the domain and are filtered. The surviving candidates
+are concentrated in a small sub-region, but the full domain grid is still allocated —
+more total grid cells relative to actual candidates.]*
 
 ---
 

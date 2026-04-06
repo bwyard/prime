@@ -1,6 +1,6 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use std::hint::black_box;
-use prime_spatial::{poisson_rect_partitioned, scatter_cull_rect, scatter_cull_voronoi, scatter_cull_voronoi_recursive};
+use prime_spatial::{poisson_rect_partitioned, scatter_cull_rect, scatter_cull_voronoi, scatter_cull_voronoi_recursive, scatter_cull_sheared};
 use prime_spatial::research::poisson_disk_wei;
 
 // Research benchmark: Approach C — rectangular partitions
@@ -99,5 +99,36 @@ fn bench_approach_d_recursive(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_approach_c, bench_approach_d, bench_approach_d_recursive, bench_wei);
+fn bench_approach_f(c: &mut Criterion) {
+    let mut group = c.benchmark_group("approach_f_sheared");
+
+    // shear_factor=0.5 (brick pattern) vs shear_factor=0.0 (variable-rect, no shear)
+    // Same partition count and target as C-B for direct comparison
+    for (domain, cols, rows) in [(100.0f32, 4, 4), (200.0, 6, 6), (500.0, 8, 8)] {
+        let label  = format!("{domain}x{domain}_{}x{}", cols, rows);
+        let target = 250 / (cols * rows).max(1);
+
+        group.bench_function(format!("shear_0.5/{label}"), |b| {
+            b.iter(|| {
+                scatter_cull_sheared(
+                    black_box(domain), black_box(domain),
+                    5.0, cols, rows, 0.5, target.max(10), 2.0, 42,
+                )
+            })
+        });
+
+        group.bench_function(format!("variable_rect/{label}"), |b| {
+            b.iter(|| {
+                scatter_cull_sheared(
+                    black_box(domain), black_box(domain),
+                    5.0, cols, rows, 0.0, target.max(10), 2.0, 42,
+                )
+            })
+        });
+    }
+
+    group.finish();
+}
+
+criterion_group!(benches, bench_approach_c, bench_approach_d, bench_approach_d_recursive, bench_approach_f, bench_wei);
 criterion_main!(benches);

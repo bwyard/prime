@@ -137,7 +137,7 @@ Blue noise spectral analysis (radial power spectrum) — deferred until basic re
 2. ~~Approach C — rectangular scatter-cull~~ ✅ done (equal-size, axis-aligned)
 3. ~~Wei 2008 baseline~~ ✅ done (single-threaded, in `research.rs`)
 4. ~~Approach D — Voronoi K₁₀ scatter-cull~~ ✅ done (single-level, K=10, 3 Lloyd iters)
-5. Approach F — sheared variable-size scatter-cull (non-orthogonal, non-equal)
+5. ~~Approach F — sheared variable-size scatter-cull~~ ✅ done (shear=0.5 and variable_rect variants)
 6. Approach E — half-heart scatter-cull (most complex, implement last)
 
 Wire Criterion benchmarks after each approach before moving to the next.
@@ -189,7 +189,19 @@ Lloyd convergence produces more uniform per-cell point density than rectangular 
 *[pending]*
 
 ### Approach F — Sheared Variable-Size Scatter-Cull
-*[planned — see design below]*
+
+See `ACCURACY.md` for full data.
+
+**F shear=0.5:** slower than C-B across all domains. 11.6× slower at 500×500.
+**F variable_rect (no shear):** slower than C-B but less extreme.
+
+Performance penalty is partly implementation overhead — F uses the full domain grid for culling
+rather than a per-cell grid (required because sheared candidates can land anywhere in the domain
+after domain-bounds filtering). This is an optimisation deferred post-research.
+
+**Open question (observational):** Does F produce better coverage uniformity than C despite
+the performance cost? Coverage CV comparison pending — the whole point of F is geometric
+quality, not speed.
 
 ### Wei 2008 Baseline
 
