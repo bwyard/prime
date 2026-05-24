@@ -19,7 +19,7 @@ members = [
 resolver = "2"
 
 [workspace.dependencies]
-glam      = "0.32"
+glam      = "0.33"
 criterion = { version = "0.8", features = ["html_reports"] }
 
 [workspace.package]
