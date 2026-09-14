@@ -7,6 +7,14 @@ node_modules/
 dist/
 .pnpm-store/
 
+# prime-random is git-path-consumed by other repos (e.g. GLR) before the
+# batch npm publish exists -- its dist/ must be committed so consumers get
+# plain files with no build step (a `prepare` script here would otherwise
+# trigger a full nested pnpm install across every stub crate in this repo,
+# see PR #64). Revert once real npm/GitHub Packages publishing exists.
+!/packages/prime-random/dist/
+!/packages/prime-random/dist/**
+
 # WASM output (future)
 pkg/
 *.wasm

@@ -33,7 +33,6 @@
   "author": "Bree Yard",
   "scripts": {
     "build": "tsc",
-    "prepare": "tsc",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
