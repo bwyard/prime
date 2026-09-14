@@ -597,7 +597,8 @@ pub fn frustum_cull_aabb(
 /// Returns `[index, distance]` or `[-1, 0]` if empty.
 #[wasm_bindgen]
 pub fn voronoi_nearest_2d(qx: f32, qy: f32, seeds_flat: &[f32]) -> Box<[f32]> {
-    let seeds: Vec<(f32, f32)> = seeds_flat.chunks_exact(2).map(|c| (c[0], c[1])).collect();
+    let seeds: Vec<(f32, f32)> =
+        seeds_flat.as_chunks::<2>().0.iter().map(|c| (c[0], c[1])).collect();
     match prime_voronoi::voronoi_nearest_2d((qx, qy), &seeds) {
         Some((idx, dist)) => vec![idx as f32, dist].into_boxed_slice(),
         None => vec![-1.0, 0.0].into_boxed_slice(),
@@ -608,7 +609,8 @@ pub fn voronoi_nearest_2d(qx: f32, qy: f32, seeds_flat: &[f32]) -> Box<[f32]> {
 /// Returns `[f1, f2]` or `[-1, -1]` if empty.
 #[wasm_bindgen]
 pub fn voronoi_f1_f2_2d(qx: f32, qy: f32, seeds_flat: &[f32]) -> Box<[f32]> {
-    let seeds: Vec<(f32, f32)> = seeds_flat.chunks_exact(2).map(|c| (c[0], c[1])).collect();
+    let seeds: Vec<(f32, f32)> =
+        seeds_flat.as_chunks::<2>().0.iter().map(|c| (c[0], c[1])).collect();
     match prime_voronoi::voronoi_f1_f2_2d((qx, qy), &seeds) {
         Some((f1, f2)) => vec![f1, f2].into_boxed_slice(),
         None => vec![-1.0, -1.0].into_boxed_slice(),
@@ -619,8 +621,10 @@ pub fn voronoi_f1_f2_2d(qx: f32, qy: f32, seeds_flat: &[f32]) -> Box<[f32]> {
 /// Returns new seeds as flat `[x0, y0, x1, y1, ...]`.
 #[wasm_bindgen]
 pub fn lloyd_relax_step_2d(seeds_flat: &[f32], samples_flat: &[f32]) -> Box<[f32]> {
-    let seeds: Vec<(f32, f32)> = seeds_flat.chunks_exact(2).map(|c| (c[0], c[1])).collect();
-    let samples: Vec<(f32, f32)> = samples_flat.chunks_exact(2).map(|c| (c[0], c[1])).collect();
+    let seeds: Vec<(f32, f32)> =
+        seeds_flat.as_chunks::<2>().0.iter().map(|c| (c[0], c[1])).collect();
+    let samples: Vec<(f32, f32)> =
+        samples_flat.as_chunks::<2>().0.iter().map(|c| (c[0], c[1])).collect();
     let relaxed = prime_voronoi::lloyd_relax_step_2d(&seeds, &samples);
     relaxed.into_iter().flat_map(|(x, y)| [x, y]).collect::<Vec<f32>>().into_boxed_slice()
 }
